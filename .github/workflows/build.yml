@@ -2,13 +2,16 @@ name: Build macOS DMG
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: macos-latest
+
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout
@@ -37,34 +40,11 @@ jobs:
       - name: Build renderer (Vite)
         run: npx vite build
 
-      - name: Build Electron app
-        run: npx electron-builder --mac --arm64 --publish never
+      - name: Extract version
+        id: version
+        run: echo "version=v$(node -p 'require(\"./package.json\").version')" >> $GITHUB_OUTPUT
+
+      - name: Build and publish Electron app
+        run: npx electron-builder --mac --arm64 --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload DMG artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: Cursor-Account-Manager-arm64
-          path: release/*.dmg
-
-  release:
-    needs: build
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
-    permissions:
-      contents: write
-
-    steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: dist
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: dist/**/*.dmg
-          generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

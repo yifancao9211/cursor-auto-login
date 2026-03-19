@@ -1,7 +1,7 @@
 <script setup>
-import { ref, onMounted, computed } from "vue";
+import { ref, onMounted, onUnmounted, computed } from "vue";
 import { useAppStore } from "../stores/app.js";
-import { KeyRound, Layers, HardDrive, Cpu, ShieldCheck, Activity, Timer, PlayCircle } from "lucide-vue-next";
+import { KeyRound, Layers, HardDrive, Cpu, ShieldCheck, Activity, Timer, PlayCircle, Download, RefreshCw, CheckCircle2, AlertCircle } from "lucide-vue-next";
 
 const store = useAppStore();
 
@@ -12,6 +12,10 @@ const form = ref({
 });
 
 const runningAutoCheck = ref(false);
+const appVersion = ref("...");
+const updateStatus = ref(null); // null | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error'
+const updateInfo = ref({});
+let cleanupUpdateListener = null;
 
 onMounted(async () => {
   store.loadSettings();
@@ -21,6 +25,17 @@ onMounted(async () => {
     concurrency: store.settings.concurrency,
     autoCheckMinutes: store.settings.autoCheckMinutes || 30,
   };
+  // 获取版本号
+  appVersion.value = await window.api.getAppVersion();
+  // 监听更新状态
+  cleanupUpdateListener = window.api.onUpdateStatus((data) => {
+    updateStatus.value = data.status;
+    updateInfo.value = data;
+  });
+});
+
+onUnmounted(() => {
+  if (cleanupUpdateListener) cleanupUpdateListener();
 });
 
 function handleSave() {
@@ -58,6 +73,27 @@ async function runNow() {
 const lastCheckLabel = computed(() => {
   if (!store.autoCheckStatus?.lastCheckTime) return "从未";
   return new Date(store.autoCheckStatus.lastCheckTime).toLocaleString();
+});
+
+async function checkUpdate() {
+  updateStatus.value = 'checking';
+  await window.api.checkForUpdate();
+}
+
+function installUpdate() {
+  window.api.installUpdate();
+}
+
+const updateLabel = computed(() => {
+  switch (updateStatus.value) {
+    case 'checking': return '检查中...';
+    case 'available': return `发现新版本 v${updateInfo.value.version}`;
+    case 'downloading': return `下载中 ${updateInfo.value.percent || 0}%`;
+    case 'downloaded': return `v${updateInfo.value.version} 已就绪`;
+    case 'not-available': return '已是最新版本';
+    case 'error': return `更新失败: ${updateInfo.value.message}`;
+    default: return null;
+  }
 });
 </script>
 
@@ -188,15 +224,53 @@ const lastCheckLabel = computed(() => {
       </div>
     </div>
 
-    <!-- About App -->
+    <!-- About App + Update -->
     <div class="mt-4 flex flex-col items-center justify-center text-center gap-2 opacity-60 hover:opacity-100 transition-opacity">
       <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-gray-100 to-gray-300 shadow-sm flex items-center justify-center text-gray-700 border border-white/50">
         <ShieldCheck class="w-6 h-6" />
       </div>
       <div>
         <h4 class="font-bold tracking-tight text-apple-text">Cursor Account Manager</h4>
-        <p class="text-[10px] text-apple-textMuted uppercase tracking-widest mt-0.5">Version 1.0.0 (Apple 2026 Edition)</p>
+        <p class="text-[10px] text-apple-textMuted uppercase tracking-widest mt-0.5">Version {{ appVersion }}</p>
       </div>
+
+      <!-- Update Status -->
+      <div class="flex flex-col items-center gap-2 mt-2">
+        <!-- Progress bar -->
+        <div v-if="updateStatus === 'downloading'" class="w-48 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+          <div class="h-full bg-gradient-to-r from-purple-500 to-indigo-500 rounded-full transition-all duration-300" :style="{ width: (updateInfo.percent || 0) + '%' }"></div>
+        </div>
+
+        <!-- Status label -->
+        <div v-if="updateLabel" class="flex items-center gap-1.5 text-xs font-medium" :class="{
+          'text-apple-textMuted': updateStatus === 'checking' || updateStatus === 'not-available',
+          'text-purple-600': updateStatus === 'available' || updateStatus === 'downloading',
+          'text-apple-success': updateStatus === 'downloaded',
+          'text-apple-danger': updateStatus === 'error',
+        }">
+          <RefreshCw v-if="updateStatus === 'checking'" class="w-3.5 h-3.5 animate-spin" />
+          <Download v-else-if="updateStatus === 'available' || updateStatus === 'downloading'" class="w-3.5 h-3.5" />
+          <CheckCircle2 v-else-if="updateStatus === 'downloaded'" class="w-3.5 h-3.5" />
+          <AlertCircle v-else-if="updateStatus === 'error'" class="w-3.5 h-3.5" />
+          {{ updateLabel }}
+        </div>
+
+        <!-- Action buttons -->
+        <div class="flex items-center gap-2">
+          <button
+            v-if="updateStatus !== 'downloading' && updateStatus !== 'downloaded'"
+            class="text-xs font-bold text-apple-accent hover:text-blue-600 transition-colors px-3 py-1 rounded-lg hover:bg-blue-50"
+            :disabled="updateStatus === 'checking'"
+            @click="checkUpdate"
+          >检查更新</button>
+          <button
+            v-if="updateStatus === 'downloaded'"
+            class="text-xs font-bold text-white bg-apple-success hover:bg-green-600 transition-colors px-4 py-1.5 rounded-lg shadow-sm"
+            @click="installUpdate"
+          >安装并重启</button>
+        </div>
+      </div>
+
       <p class="text-xs text-apple-textMuted max-w-xs mt-2 font-medium">设计用于无缝管理 Cursor IDE 多账号配额与无痛切换体验。</p>
     </div>
   </div>

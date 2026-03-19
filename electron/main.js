@@ -9,6 +9,7 @@ import { switcher } from "./services/switcher.js";
 import { loginService } from "./services/login.js";
 import { machineIdService } from "./services/machine-id.js";
 import { tokenExchange } from "./services/token-exchange.js";
+import { updater } from "./services/updater.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
@@ -46,6 +47,8 @@ app.whenReady().then(() => {
   accountDb.init();
   registerIpcHandlers();
   createWindow();
+  // 初始化自动更新
+  updater.init(sendToRenderer);
   // 启动后延迟 10 秒自动巡检一次
   setTimeout(() => runAutoCheck(), 10000);
   startAutoCheck();
@@ -445,4 +448,9 @@ function registerIpcHandlers() {
   ipcMain.handle("dialog:saveFile", async (_, options) => {
     return dialog.showSaveDialog(mainWindow, options);
   });
+
+  // -- Updater --
+  ipcMain.handle("updater:check", () => updater.checkForUpdates());
+  ipcMain.handle("updater:install", () => updater.installUpdate());
+  ipcMain.handle("updater:getVersion", () => updater.getVersion());
 }
