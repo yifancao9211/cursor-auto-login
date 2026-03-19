@@ -232,7 +232,7 @@ const updateLabel = computed(() => {
         <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div class="flex flex-col gap-1">
             <span class="font-bold text-sm text-apple-text">启用定时重试</span>
-            <span class="text-xs text-apple-textMuted">每天在指定时间自动对所有失败账号重新尝试登录。</span>
+            <span class="text-xs text-apple-textMuted">每天在指定时间自动对所有失败和待登录的账号重新尝试登录。</span>
           </div>
           <label class="relative inline-flex items-center cursor-pointer">
             <input type="checkbox" v-model="form.retryFailedEnabled" class="sr-only peer">
