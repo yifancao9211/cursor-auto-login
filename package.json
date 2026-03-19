@@ -8,14 +8,6 @@
   "scripts": {
     "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "build": "vite build && electron-builder",
-    "login": "node src/index.mjs",
-    "login:reset": "node src/index.mjs --reset",
-    "batch": "node src/batch-login.mjs",
-    "balance": "node src/check-balance.mjs",
-    "retry": "node src/retry-failed.mjs",
-    "retry:force": "node src/retry-failed.mjs --force",
-    "check-new": "node src/check-new.mjs",
-    "setup": "playwright install chromium",
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {

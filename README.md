@@ -1,88 +1,96 @@
-# Cursor Auto Login
+# Cursor Account Manager
 
-使用 Playwright 自动登录 Cursor 账号，批量测试账号、查询余额、管理 Token。
+Electron 桌面应用，用于管理多个 Cursor IDE 账号。支持一键切号、配额查询、批量登录、组织成员自动发现。
+
+## 功能特性
+
+- 🔄 **一键切号** — 在多个 Cursor 账号之间无缝切换，自动写入所有必要的认证字段
+- 📊 **配额查询** — 实时查看每个账号的 usage 和余额，支持余额排序
+- 🤖 **自动巡检** — 后台定时检查所有账号 Token 有效性和余额变化
+- 👥 **组织入库** — 自动发现团队成员并批量入库（通过 Cursor Team API）
+- 🔑 **批量登录** — 使用 Playwright 自动化浏览器批量获取 Token
+- 🆔 **机器码管理** — 每个账号独立的 machine ID，切号时自动替换
+- 📋 **批量导入** — 支持粘贴 JSON 格式的 Token 数据快速导入
+- 🏷️ **状态管理** — 账号状态分类：活跃 / 待登录 / 失败 / 已禁用
 
 ## 快速开始
 
 ```bash
-# 1. 安装依赖
-npm install
-npm run setup
+# 安装依赖
+pnpm install
 
-# 2. 配置环境变量
-cp .env.example .env
-# 编辑 .env 设置 CURSOR_EMAIL / CURSOR_PASSWORD 等
+# 开发模式运行
+pnpm run dev
 
-# 3. 在 accounts.txt 中填入要测试的邮箱（每行一个）
+# 构建生产包
+pnpm run build
 ```
 
-## 命令一览
+## 技术栈
 
-| 命令 | 用途 | 说明 |
+| 层 | 技术 |
+|:---|:---|
+| 框架 | Electron 33 |
+| 前端 | Vue 3 + Pinia |
+| 样式 | Tailwind CSS |
+| 数据库 | better-sqlite3 |
+| 自动化 | Playwright (登录) |
+| 构建 | Vite + electron-builder |
+
+## 项目结构
+
+```
+├── electron/                 # 主进程
+│   ├── main.js              # 入口，IPC、自动巡检、组织发现
+│   ├── preload.cjs          # IPC 桥接
+│   └── services/
+│       ├── account-db.js    # SQLite 账号数据库
+│       ├── cursor-api.js    # Cursor API (usage/stripe/teams)
+│       ├── cursor-db.js     # 读写 Cursor 的 state.vscdb
+│       ├── login.js         # Playwright 自动登录
+│       ├── machine-id.js    # 机器码生成与管理
+│       └── switcher.js      # 账号切换逻辑
+├── ui/                       # 渲染进程 (Vue)
+│   ├── views/
+│   │   ├── Dashboard.vue    # 仪表盘总览
+│   │   ├── Accounts.vue     # 账号管理（详细/紧凑视图）
+│   │   ├── Onboarding.vue   # 入库与登录管理
+│   │   └── Settings.vue     # 设置（巡检间隔、并发数等）
+│   ├── components/
+│   │   ├── BatchLoginDialog.vue
+│   │   └── SwitchDialog.vue
+│   └── stores/app.js        # Pinia 状态管理
+├── index.html
+├── vite.config.js
+├── tailwind.config.js
+└── package.json
+```
+
+## 账号状态流转
+
+```
+新增/导入 → [new] → 批量登录 → [active] ← 巡检刷新
+                         ↓
+                     [failed] ⇄ [disabled]
+                         ↓
+                     批量重试 → [active]
+```
+
+## 使用的 Cursor API
+
+| 接口 | 方法 | 用途 |
 |:---|:---|:---|
-| `npm run login` | 单账号登录 | 使用 `.env` 中的账号密码 |
-| `npm run login:reset` | 重置登录态 | 清除本地会话缓存 |
-| `npm run batch` | 批量登录 | 读取 `accounts.txt`，3路并行登录，获取 Token |
-| `npm run balance` | 查询余额 | 用已有 Token 秒查所有账号余额（无需浏览器） |
-| `npm run check-new` | 检测新增账号 | 对比 `accounts.txt`，只登录尚未处理过的新账号 |
-| `npm run retry` | 重试失败账号 | 每5天自动重试，未到时间会跳过 |
-| `npm run retry:force` | 强制重试 | 忽略5天间隔，立即重试所有失败账号 |
-
-## 日常使用流程
-
-```
-1. 首次：npm run batch         → 批量登录，获取 Token
-2. 日常：npm run balance       → 秒查所有账号余额
-3. 定期：npm run retry         → 重试之前失败的账号
-```
-
-## 环境变量
-
-在 `.env` 中配置：
-
-| 变量 | 默认值 | 说明 |
-|:---|:---|:---|
-| `BATCH_PASSWORD` | `abcd@1234` | 批量登录的统一密码 |
-| `CURSOR_HEADLESS` | `true` | 是否无头模式运行浏览器 |
-| `CONCURRENCY` | `3` | 批量登录的并行数 |
-
-## 文件说明
-
-### 脚本文件
-
-| 文件 | 说明 |
-|:---|:---|
-| `src/batch-login.mjs` | 批量登录脚本，读取 `accounts.txt`，并行登录并获取 Token 和余额 |
-| `src/check-balance.mjs` | 余额查询脚本，纯 API 调用，读取 `tokens.json` 查余额 |
-| `src/retry-failed.mjs` | 失败重试脚本，读取 `failed_accounts.json`，5天间隔自动重试 |
-
-### 数据文件
-
-| 文件 | 说明 |
-|:---|:---|
-| `accounts.txt` | 待测试的邮箱列表，每行一个，`#` 开头为注释 |
-| `tokens.json` | 已获取的 Token 缓存（邮箱 → WorkosCursorSessionToken） |
-| `failed_accounts.json` | 登录失败的账号列表及上次重试时间 |
-| `results.json` | 批量登录的详细结果（含余额、错误信息） |
-| `balance.json` | 最近一次余额查询的原始数据 |
-| `valid_accounts_report.md` | 生成的余额报告（Markdown 表格，含 Token） |
-
-### 其他
-
-| 文件/目录 | 说明 |
-|:---|:---|
-| `.env` | 环境变量配置（不提交 git） |
-| `.cursor-session/` | 单账号登录的浏览器会话缓存 |
-| `.batch-sessions/` | 批量登录的临时浏览器目录（运行后自动清理） |
-
-## 工作原理
-
-1. **登录流程**：`authenticator.cursor.sh`（输入邮箱）→ `auth0.com`（输入邮箱+密码）→ 回调 `cursor.com`
-2. **Token 获取**：登录成功后从 Cookie 中提取 `WorkosCursorSessionToken`
-3. **余额查询**：用 Token 调用 `https://cursor.com/api/usage-summary` API
-4. **缓存复用**：已有有效 Token 的账号直接查 API，跳过浏览器登录
+| `/api/usage-summary` | GET | 查询用量和余额 |
+| `/api/auth/stripe` | GET | 获取 membershipType / teamId |
+| `/api/dashboard/teams` | POST | 获取团队列表 |
+| `/api/dashboard/get-team-spend` | POST | 获取团队计费成员（分页） |
 
 ## 安全说明
 
-- 不要把账号密码和 Token 提交到 git
-- `.env`、`tokens.json`、`results.json`、`accounts.txt` 等敏感文件已加入 `.gitignore`
+- `accounts.db`、`.env`、`tokens.json` 等敏感文件已加入 `.gitignore`
+- Electron 使用 `contextIsolation: true` + `nodeIntegration: false`
+- 所有主进程通信通过 IPC Handler
+
+## License
+
+MIT
