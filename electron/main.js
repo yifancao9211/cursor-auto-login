@@ -505,29 +505,25 @@ async function checkSingleAccount(acc) {
     }
   }
 
-  // 智能调用：优先 Bearer (accessToken → api2.cursor.sh)，fallback Cookie
-  let usage = await cursorApi.fetchUsageSmart(acc);
-  let stripe = await cursorApi.fetchStripeSmart(acc);
-
-  // 如果 Bearer 失败(401/403) 且有 refresh_token，尝试刷新 access_token 再重试
-  if ((usage.status === 401 || usage.status === 403) && acc.refresh_token) {
-    console.log(`[check] ${acc.email}: Bearer 认证失败，尝试用 refresh_token 刷新...`);
+  // 主动刷新：如果有 refresh_token，每次巡检都尝试刷新 access_token 保持最新
+  if (acc.refresh_token) {
     const refreshResult = await tokenExchange.refreshAccessToken(acc.refresh_token);
     if (refreshResult.success) {
-      console.log(`[check] ${acc.email}: refresh_token 刷新成功，重试 API 调用`);
+      console.log(`[check] ${acc.email}: 主动刷新 access_token 成功`);
       acc.access_token = refreshResult.accessToken;
       update.access_token = refreshResult.accessToken;
       if (refreshResult.refreshToken && refreshResult.refreshToken !== acc.refresh_token) {
         acc.refresh_token = refreshResult.refreshToken;
         update.refresh_token = refreshResult.refreshToken;
       }
-      // 用新的 access_token 重试
-      usage = await cursorApi.fetchUsageSmart(acc);
-      stripe = await cursorApi.fetchStripeSmart(acc);
     } else {
-      console.log(`[check] ${acc.email}: refresh_token 刷新失败: ${refreshResult.error}`);
+      console.log(`[check] ${acc.email}: 主动刷新失败(${refreshResult.error})，使用现有 token 继续`);
     }
   }
+
+  // 智能调用：优先 Bearer (accessToken → api2.cursor.sh)，fallback Cookie
+  const usage = await cursorApi.fetchUsageSmart(acc);
+  const stripe = await cursorApi.fetchStripeSmart(acc);
 
   if (usage.status === 200 && usage.data) {
     const od = usage.data.individualUsage?.onDemand;
