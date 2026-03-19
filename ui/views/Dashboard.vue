@@ -276,7 +276,7 @@ onMounted(async () => {
               <span class="text-lg font-black">${{ acc.balance }}</span>
             </div>
             <ArrowRightCircle v-if="acc.email === store.currentEmail" class="w-5 h-5 text-apple-success opacity-50" />
-            <button v-else @click="store.switchAccount(acc.email)" class="w-6 h-6 rounded-full bg-black/5 hover:bg-black/10 flex items-center justify-center transition-colors text-apple-text" title="切换到此号">
+            <button v-else @click="store.switchAccount({ email: acc.email, token: acc.token, access_token: acc.access_token, refresh_token: acc.refresh_token, membership_type: acc.membership_type, stripe_customer_id: acc.stripe_customer_id, team_id: acc.team_id }, { resetMachineId: true })" class="w-6 h-6 rounded-full bg-black/5 hover:bg-black/10 flex items-center justify-center transition-colors text-apple-text" title="切换到此号">
               <ArrowRightCircle class="w-4 h-4" />
             </button>
           </div>

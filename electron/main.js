@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog } from "electron";
+import { app, BrowserWindow, ipcMain, dialog, shell } from "electron";
 import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -10,6 +10,7 @@ import { loginService } from "./services/login.js";
 import { machineIdService } from "./services/machine-id.js";
 import { tokenExchange } from "./services/token-exchange.js";
 import { updater } from "./services/updater.js";
+import { logger } from "./services/logger.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
@@ -24,7 +25,7 @@ let retryFailedTime = "00:00";
 let retryFailedTimer = null;
 
 function createWindow() {
-  mainWindow = new BrowserWindow({
+  const windowConfig = {
     width: 1100,
     height: 720,
     minWidth: 900,
@@ -35,9 +36,18 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
     },
-    titleBarStyle: "hiddenInset",
-    trafficLightPosition: { x: 12, y: 12 },
-  });
+  };
+
+  // macOS: hidden inset title bar with traffic lights
+  if (process.platform === "darwin") {
+    windowConfig.titleBarStyle = "hiddenInset";
+    windowConfig.trafficLightPosition = { x: 12, y: 12 };
+  } else {
+    // Windows/Linux: use default frame with hidden menu bar
+    windowConfig.autoHideMenuBar = true;
+  }
+
+  mainWindow = new BrowserWindow(windowConfig);
 
   if (isDev) {
     mainWindow.loadURL("http://localhost:5173");
@@ -50,6 +60,8 @@ app.whenReady().then(() => {
   accountDb.init();
   registerIpcHandlers();
   createWindow();
+  // 初始化 logger（传入 sendToRenderer 用于流式推送日志到前端）
+  logger.init(sendToRenderer);
   // 初始化自动更新
   updater.init(sendToRenderer);
   // 启动后延迟 10 秒自动巡检一次
@@ -775,17 +787,29 @@ function registerIpcHandlers() {
     }
   });
 
-  // -- Schedule settings (org discovery + retry failed) --
+  // -- Schedule settings (org discovery + retry failed + logging) --
   ipcMain.handle("schedule:updateSettings", (_, settings) => {
     if (settings.orgDiscoveryEnabled !== undefined) orgDiscoveryEnabled = settings.orgDiscoveryEnabled;
     if (settings.retryFailedEnabled !== undefined) retryFailedEnabled = settings.retryFailedEnabled;
     if (settings.retryFailedTime !== undefined) retryFailedTime = settings.retryFailedTime;
+    if (settings.enableLogging !== undefined) logger.setEnabled(settings.enableLogging);
+    
     startRetryFailedTimer();
-    console.log(`[schedule] Updated: orgDiscovery=${orgDiscoveryEnabled}, retryFailed=${retryFailedEnabled} at ${retryFailedTime}`);
-    return { orgDiscoveryEnabled, retryFailedEnabled, retryFailedTime };
+    console.log(`[schedule] Updated: orgDiscovery=${orgDiscoveryEnabled}, retryFailed=${retryFailedEnabled} at ${retryFailedTime}, enableLogging=${settings.enableLogging}`);
+    return { orgDiscoveryEnabled, retryFailedEnabled, retryFailedTime, enableLogging: settings.enableLogging };
   });
 
   ipcMain.handle("schedule:retryNow", () => runRetryFailed());
+
+  // -- Logger --
+  ipcMain.handle("logger:getAll", () => logger.getAll());
+  ipcMain.handle("logger:clear", () => logger.clear());
+  ipcMain.handle("logger:setEnabled", (_, enabled) => logger.setEnabled(enabled));
+  ipcMain.handle("logger:addRendererLog", (_, level, message) => logger.addRendererLog(level, message));
+  ipcMain.handle("logger:openDir", () => {
+    const logDir = app.getPath("userData");
+    shell.openPath(logDir);
+  });
 
   // -- 团队成员发现 (手动触发) --
   ipcMain.handle("accounts:discoverTeam", async () => {

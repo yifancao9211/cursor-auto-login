@@ -97,4 +97,21 @@ contextBridge.exposeInMainWorld("api", {
 
   // Single account refresh
   refreshSingleAccount: (email) => ipcRenderer.invoke("accounts:refreshSingle", email),
+
+  // Logger
+  getAllLogs: () => ipcRenderer.invoke("logger:getAll"),
+  clearLogs: () => ipcRenderer.invoke("logger:clear"),
+  setLoggingEnabled: (enabled) => ipcRenderer.invoke("logger:setEnabled", enabled),
+  sendRendererLog: (level, message) => ipcRenderer.invoke("logger:addRendererLog", level, message),
+  onLogEntry: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on("logger:entry", handler);
+    return () => ipcRenderer.removeListener("logger:entry", handler);
+  },
+  onLogCleared: (callback) => {
+    const handler = (_event) => callback();
+    ipcRenderer.on("logger:cleared", handler);
+    return () => ipcRenderer.removeListener("logger:cleared", handler);
+  },
+  openLogDir: () => ipcRenderer.invoke("logger:openDir"),
 });

@@ -119,6 +119,7 @@ export const switcher = {
         if (usage.status === 200 && usage.data) {
           const plan = usage.data.individualUsage?.plan;
           const od = usage.data.individualUsage?.onDemand;
+          // 注意: API 返回的 used/limit 单位是 cents，此处仅比较大小不影响判断
           const totalUsed = (plan?.used || 0) + (od?.used || 0);
           const totalLimit = (plan?.limit || 0) + (od?.limit || 0);
           if (totalUsed < totalLimit) {

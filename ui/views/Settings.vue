@@ -12,6 +12,7 @@ const form = ref({
   orgDiscoveryEnabled: true,
   retryFailedEnabled: false,
   retryFailedTime: "00:00",
+  enableLogging: false,
 });
 
 const runningAutoCheck = ref(false);
@@ -30,6 +31,7 @@ onMounted(async () => {
     orgDiscoveryEnabled: store.settings.orgDiscoveryEnabled !== false,
     retryFailedEnabled: store.settings.retryFailedEnabled || false,
     retryFailedTime: store.settings.retryFailedTime || "00:00",
+    enableLogging: store.settings.enableLogging || false,
   };
   // 获取版本号
   appVersion.value = await window.api.getAppVersion();
@@ -50,18 +52,21 @@ async function syncScheduleToMain() {
     orgDiscoveryEnabled: form.value.orgDiscoveryEnabled,
     retryFailedEnabled: form.value.retryFailedEnabled,
     retryFailedTime: form.value.retryFailedTime,
+    enableLogging: form.value.enableLogging,
   });
   store.saveSettings();
   await window.api.updateScheduleSettings({
     orgDiscoveryEnabled: form.value.orgDiscoveryEnabled,
     retryFailedEnabled: form.value.retryFailedEnabled,
     retryFailedTime: form.value.retryFailedTime,
+    enableLogging: form.value.enableLogging,
   });
 }
 
 watch(() => form.value.retryFailedEnabled, syncScheduleToMain);
 watch(() => form.value.orgDiscoveryEnabled, syncScheduleToMain);
 watch(() => form.value.retryFailedTime, syncScheduleToMain);
+watch(() => form.value.enableLogging, syncScheduleToMain);
 
 async function handleSave() {
   Object.assign(store.settings, form.value);
@@ -72,6 +77,7 @@ async function handleSave() {
     orgDiscoveryEnabled: form.value.orgDiscoveryEnabled,
     retryFailedEnabled: form.value.retryFailedEnabled,
     retryFailedTime: form.value.retryFailedTime,
+    enableLogging: form.value.enableLogging,
   });
   alert("设置已保存！");
 }

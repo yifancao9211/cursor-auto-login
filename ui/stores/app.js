@@ -15,6 +15,7 @@ export const useAppStore = defineStore("app", {
       orgDiscoveryEnabled: true,
       retryFailedEnabled: false,
       retryFailedTime: "00:00",
+      enableLogging: false,
     },
     preferences: {
       viewMode: "full",

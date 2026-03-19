@@ -4,8 +4,9 @@ import Dashboard from "./views/Dashboard.vue";
 import Accounts from "./views/Accounts.vue";
 import Onboarding from "./views/Onboarding.vue";
 import Settings from "./views/Settings.vue";
+import Logs from "./views/Logs.vue";
 import { useAppStore } from "./stores/app.js";
-import { LayoutDashboard, Users, PackagePlus, Settings as SettingsIcon, Hexagon } from "lucide-vue-next";
+import { LayoutDashboard, Users, PackagePlus, Settings as SettingsIcon, Hexagon, ScrollText } from "lucide-vue-next";
 
 const store = useAppStore();
 const activeTab = ref("dashboard");
@@ -23,6 +24,7 @@ onMounted(async () => {
       orgDiscoveryEnabled: store.settings.orgDiscoveryEnabled !== false,
       retryFailedEnabled: store.settings.retryFailedEnabled || false,
       retryFailedTime: store.settings.retryFailedTime || "00:00",
+      enableLogging: store.settings.enableLogging || false,
     });
   } catch (e) {
     console.warn("[App] Failed to sync schedule settings:", e.message);
@@ -33,14 +35,15 @@ const tabs = [
   { key: "dashboard", label: "仪表盘", icon: LayoutDashboard },
   { key: "accounts", label: "账号", icon: Users },
   { key: "onboarding", label: "入库", icon: PackagePlus },
+  { key: "logs", label: "日志", icon: ScrollText },
   { key: "settings", label: "设置", icon: SettingsIcon },
 ];
 </script>
 
 <template>
   <div class="flex h-screen w-full bg-apple-bg overflow-hidden text-apple-text">
-    <!-- macOS Window Drag Strip (invisible, sits on top) -->
-    <div class="drag-region absolute top-0 left-0 w-full h-7 z-50"></div>
+    <!-- macOS/Windows Window Drag Strip — z-10 to stay below interactive content -->
+    <div class="drag-region absolute top-0 left-64 right-0 h-7 z-10"></div>
 
     <!-- Sidebar -->
     <aside class="w-64 flex flex-col pt-12 pb-4 px-3 bg-apple-sidebar/80 backdrop-blur-3xl border-r border-apple-border/50 shadow-sm relative z-40">
@@ -89,6 +92,7 @@ const tabs = [
             <Dashboard v-if="activeTab === 'dashboard'" />
             <Accounts v-if="activeTab === 'accounts'" />
             <Onboarding v-if="activeTab === 'onboarding'" />
+            <Logs v-if="activeTab === 'logs'" />
             <Settings v-if="activeTab === 'settings'" />
           </div>
         </Transition>

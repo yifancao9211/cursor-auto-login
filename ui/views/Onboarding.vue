@@ -60,12 +60,12 @@ async function toggleDisabled(email, isDisabled) {
   await store.loadAccounts();
 }
 
-function handleAddSingle() {
+async function handleAddSingle() {
   const email = addEmail.value.trim();
   if (!email || !email.includes("@")) return;
-  window.api.upsertAccount({ email, account_status: "new", token_valid: 0 });
+  await window.api.upsertAccount({ email, account_status: "new", token_valid: 0 });
   addEmail.value = "";
-  store.loadAccounts();
+  await store.loadAccounts();
 }
 
 function openImportDialog() {

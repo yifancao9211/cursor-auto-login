@@ -4,11 +4,18 @@ import path from "node:path";
 import os from "node:os";
 import { app } from "electron";
 
+function getCursorDataDir() {
+  if (process.platform === "darwin") {
+    return path.join(os.homedir(), "Library", "Application Support", "Cursor");
+  } else if (process.platform === "win32") {
+    return path.join(process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming"), "Cursor");
+  } else {
+    return path.join(os.homedir(), ".config", "Cursor");
+  }
+}
+
 const STORAGE_JSON_PATH = path.join(
-  os.homedir(),
-  "Library",
-  "Application Support",
-  "Cursor",
+  getCursorDataDir(),
   "User",
   "globalStorage",
   "storage.json"
