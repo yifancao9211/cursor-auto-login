@@ -17,7 +17,8 @@ async function killCursor() {
     if (process.platform === "darwin") {
       await execAsync('osascript -e \'quit app "Cursor"\'').catch(() => {});
       await new Promise((r) => setTimeout(r, 1000));
-      await execAsync("pkill -f 'Cursor' || true");
+      // 精确只杀 Cursor IDE 进程，排除 Cursor Account Manager
+      await execAsync("pgrep -f '/Applications/Cursor.app' | xargs kill -9 2>/dev/null || true").catch(() => {});
     } else if (process.platform === "win32") {
       await execAsync("taskkill /F /IM Cursor.exe /T").catch(() => {});
     } else {
