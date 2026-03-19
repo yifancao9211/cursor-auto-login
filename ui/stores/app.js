@@ -16,6 +16,11 @@ export const useAppStore = defineStore("app", {
       retryFailedEnabled: false,
       retryFailedTime: "00:00",
     },
+    preferences: {
+      viewMode: "full",
+      sortBy: "email",
+      balanceFilter: "all",
+    },
   }),
 
   getters: {
@@ -94,6 +99,19 @@ export const useAppStore = defineStore("app", {
 
     saveSettings() {
       localStorage.setItem("cam-settings", JSON.stringify(this.settings));
+    },
+
+    loadPreferences() {
+      try {
+        const saved = localStorage.getItem("cam-preferences");
+        if (saved) Object.assign(this.preferences, JSON.parse(saved));
+      } catch {
+        // ignore
+      }
+    },
+
+    savePreferences() {
+      localStorage.setItem("cam-preferences", JSON.stringify(this.preferences));
     },
   },
 });

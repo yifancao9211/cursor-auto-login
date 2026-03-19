@@ -1,12 +1,33 @@
 <script setup>
-import { ref } from "vue";
+import { ref, onMounted } from "vue";
 import Dashboard from "./views/Dashboard.vue";
 import Accounts from "./views/Accounts.vue";
 import Onboarding from "./views/Onboarding.vue";
 import Settings from "./views/Settings.vue";
+import { useAppStore } from "./stores/app.js";
 import { LayoutDashboard, Users, PackagePlus, Settings as SettingsIcon, Hexagon } from "lucide-vue-next";
 
+const store = useAppStore();
 const activeTab = ref("dashboard");
+
+onMounted(async () => {
+  // 加载持久化设置和偏好
+  store.loadSettings();
+  store.loadPreferences();
+  await store.loadAccounts();
+  store.loadCurrentAuth();
+
+  // 同步调度设置到 main 进程（确保重启后定时重试仍生效）
+  try {
+    await window.api.updateScheduleSettings({
+      orgDiscoveryEnabled: store.settings.orgDiscoveryEnabled !== false,
+      retryFailedEnabled: store.settings.retryFailedEnabled || false,
+      retryFailedTime: store.settings.retryFailedTime || "00:00",
+    });
+  } catch (e) {
+    console.warn("[App] Failed to sync schedule settings:", e.message);
+  }
+});
 
 const tabs = [
   { key: "dashboard", label: "仪表盘", icon: LayoutDashboard },

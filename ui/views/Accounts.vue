@@ -9,12 +9,21 @@ const multipleSelection = ref(new Set());
 const switchDialogVisible = ref(false);
 const switchTarget = ref(null);
 const refreshingSingle = ref(new Set());
-const balanceFilter = ref("all");
+const balanceFilter = computed({
+  get: () => store.preferences.balanceFilter || "all",
+  set: (v) => { store.preferences.balanceFilter = v; store.savePreferences(); },
+});
 const tokenDialogVisible = ref(false);
 const tokenDetail = ref(null);
 const searchQuery = ref("");
-const viewMode = ref("full"); // 'full' | 'compact'
-const sortBy = ref("email"); // 'email' | 'balance'
+const viewMode = computed({
+  get: () => store.preferences.viewMode || "full",
+  set: (v) => { store.preferences.viewMode = v; store.savePreferences(); },
+});
+const sortBy = computed({
+  get: () => store.preferences.sortBy || "email",
+  set: (v) => { store.preferences.sortBy = v; store.savePreferences(); },
+});
 const copiedKeys = ref(new Set());
 
 const allRows = computed(() => {
