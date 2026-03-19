@@ -396,7 +396,7 @@ onMounted(async () => {
 
     <!-- Token Detail Dialog (Re-styled modal) -->
     <Transition name="modal">
-      <div v-if="tokenDialogVisible" class="fixed inset-0 z-50 flex items-center justify-center no-drag p-4">
+      <div v-if="tokenDialogVisible" class="fixed inset-0 z-50 flex items-center justify-center no-drag p-4 pl-[220px]">
         <div class="absolute inset-0 bg-black/30 backdrop-blur-md" @click="tokenDialogVisible = false"></div>
         <div class="relative bg-apple-bg w-full max-w-2xl max-h-[90vh] rounded-2xl shadow-apple-lg border border-white/50 flex flex-col overflow-hidden" v-motion :initial="{ opacity: 0, scale: 0.95, y: 10 }" :enter="{ opacity: 1, scale: 1, y: 0, transition: { type: 'spring', damping: 25 } }">
           <div class="px-6 py-4 border-b border-apple-border flex justify-between items-center bg-white/80 shrink-0">

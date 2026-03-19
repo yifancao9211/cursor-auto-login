@@ -37,7 +37,6 @@ function createWindow() {
 
   if (isDev) {
     mainWindow.loadURL("http://localhost:5173");
-    mainWindow.webContents.openDevTools({ mode: "detach" });
   } else {
     mainWindow.loadFile(path.join(__dirname, "../dist-renderer/index.html"));
   }
@@ -198,9 +197,20 @@ async function checkSingleAccount(acc) {
     update.token_valid = 1;
     update.account_status = "active";
     if (usage.authMethod) console.log(`[check] ${acc.email}: usage via ${usage.authMethod}`);
-  } else {
+  } else if (usage.status === 401 || usage.status === 403) {
+    // Token 确实无效（认证失败），标记为 failed
+    console.log(`[check] ${acc.email}: 认证失败 (${usage.status})，标记为失效`);
     update.token_valid = 0;
     update.account_status = acc.account_status === "new" ? "new" : (acc.account_status === "disabled" ? "disabled" : "failed");
+  } else {
+    // 网络错误/超时/服务器错误：保持原有状态，不轻易标记失效
+    console.log(`[check] ${acc.email}: API 返回 ${usage.status}，保持现有状态`);
+    if (acc.account_status === "active" && (acc.token || acc.access_token)) {
+      // 已有 token 的 active 账号：保持不变
+    } else {
+      update.token_valid = 0;
+      update.account_status = acc.account_status === "new" ? "new" : (acc.account_status === "disabled" ? "disabled" : "failed");
+    }
   }
 
   if (stripe.status === 200 && stripe.data) {

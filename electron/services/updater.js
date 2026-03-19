@@ -2,7 +2,8 @@
  * 自动更新服务
  * 使用 electron-updater 从 GitHub Releases 检测并下载新版本
  */
-import { autoUpdater } from "electron-updater";
+import pkg from "electron-updater";
+const { autoUpdater } = pkg;
 import { app } from "electron";
 
 let _sendToRenderer = null;
