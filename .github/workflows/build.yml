@@ -4,42 +4,58 @@ on:
   push:
     branches:
       - main
+    tags:
+      - 'v*'
   workflow_dispatch:
 
 jobs:
-  build:
-    runs-on: macos-latest
+  # Step 1: 当 main 推送时，自动创建版本 tag（如果还不存在）
+  create-tag:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.pkg.outputs.tag }}
+      tag_exists: ${{ steps.check.outputs.exists }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
+      - name: Get version
+        id: pkg
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "tag=v${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Check if tag exists
+        id: check
+        run: |
+          if git rev-parse "${{ steps.pkg.outputs.tag }}" >/dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create and push tag
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git tag "${{ steps.pkg.outputs.tag }}"
+          git push origin "${{ steps.pkg.outputs.tag }}"
+
+  # Step 2: 当 tag 推送时（手动或自动），构建并发布
+  build:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: macos-latest
     permissions:
       contents: write
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Get version from package.json
-        id: pkg
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "tag=v${VERSION}" >> $GITHUB_OUTPUT
-
-      - name: Check if tag exists
-        id: check_tag
-        run: |
-          if git rev-parse "v${{ steps.pkg.outputs.version }}" >/dev/null 2>&1; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Create version tag
-        if: steps.check_tag.outputs.exists == 'false'
-        run: |
-          git tag "v${{ steps.pkg.outputs.version }}"
-          git push origin "v${{ steps.pkg.outputs.version }}"
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -64,7 +80,18 @@ jobs:
       - name: Build renderer (Vite)
         run: npx vite build
 
-      - name: Build and publish Electron app
-        run: npx electron-builder --mac --arm64 --publish always
+      - name: Build Electron app
+        run: npx electron-builder --mac --arm64 --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/*.dmg
+            release/*.zip
+            release/*.yml
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
