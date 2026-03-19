@@ -1,0 +1,59 @@
+{
+  "name": "cursor-account-manager",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Cursor Account Manager - 一键切号、配额查询、批量登录",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "build": "vite build && electron-builder",
+    "login": "node src/index.mjs",
+    "login:reset": "node src/index.mjs --reset",
+    "batch": "node src/batch-login.mjs",
+    "balance": "node src/check-balance.mjs",
+    "retry": "node src/retry-failed.mjs",
+    "retry:force": "node src/retry-failed.mjs --force",
+    "check-new": "node src/check-new.mjs",
+    "setup": "playwright install chromium",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.7.0",
+    "dotenv": "^16.6.1",
+    "electron-store": "^10.0.0",
+    "jwt-decode": "^4.0.0",
+    "playwright": "^1.54.2"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.3",
+    "@vueuse/core": "^14.2.1",
+    "@vueuse/motion": "^3.0.3",
+    "autoprefixer": "^10.4.27",
+    "concurrently": "^9.1.2",
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8",
+    "element-plus": "^2.9.11",
+    "lucide-vue-next": "^0.577.0",
+    "pinia": "^3.0.3",
+    "postcss": "^8.5.8",
+    "tailwindcss": "^3.4.19",
+    "vite": "^6.2.6",
+    "vue": "^3.5.13",
+    "wait-on": "^8.0.3"
+  },
+  "build": {
+    "appId": "com.cursor-account-manager",
+    "productName": "Cursor Account Manager",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron/**/*",
+      "dist-renderer/**/*"
+    ],
+    "mac": {
+      "target": "dmg"
+    }
+  }
+}

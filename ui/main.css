@@ -1,0 +1,54 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-apple-bg text-apple-text font-sans antialiased overflow-hidden select-none;
+  }
+  
+  /* Webkit scrollbar for Mac feel */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.15);
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 0, 0, 0.25);
+  }
+}
+
+@layer components {
+  /* Mac Window Drag Region */
+  .drag-region {
+    -webkit-app-region: drag;
+  }
+  .no-drag {
+    -webkit-app-region: no-drag;
+  }
+  
+  /* Glassmorphic Components */
+  .apple-glass {
+    @apply bg-apple-card backdrop-blur-xl border border-apple-border shadow-apple-sm transition-all duration-300;
+  }
+  .apple-glass:hover {
+    @apply shadow-apple;
+  }
+  
+  /* Inputs & Buttons */
+  .apple-btn {
+    @apply inline-flex items-center justify-center px-4 py-2 rounded-lg font-medium text-sm transition-all duration-200 active:scale-95 no-drag select-none;
+  }
+  .apple-btn-primary {
+    @apply apple-btn bg-apple-accent text-white shadow-sm hover:bg-blue-600;
+  }
+  .apple-btn-secondary {
+    @apply apple-btn bg-white/60 border border-apple-border text-apple-text hover:bg-white/80 shadow-sm;
+  }
+}

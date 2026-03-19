@@ -1,0 +1,13 @@
+node_modules
+dist
+.cursor-session
+.batch-sessions
+.env
+.env.example
+results.json
+accounts.txt
+accounts.db
+tokens.json
+tokens.json.imported
+*.log
+.DS_Store
