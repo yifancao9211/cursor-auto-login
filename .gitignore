@@ -11,3 +11,5 @@ tokens.json
 tokens.json.imported
 *.log
 .DS_Store
+release
+dist-renderer

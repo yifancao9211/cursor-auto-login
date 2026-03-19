@@ -38,15 +38,19 @@
   "build": {
     "appId": "com.cursor-account-manager",
     "productName": "Cursor Account Manager",
+    "asar": true,
     "directories": {
       "output": "release"
     },
     "files": [
       "electron/**/*",
-      "dist-renderer/**/*"
+      "dist-renderer/**/*",
+      "node_modules/playwright-core/**/*",
+      "node_modules/playwright/**/*"
     ],
     "mac": {
-      "target": "dmg"
+      "target": "dmg",
+      "identity": null
     }
   }
 }
