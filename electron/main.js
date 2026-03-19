@@ -87,6 +87,177 @@ function stopAutoCheck() {
   }
 }
 
+// ========== 管理员角色检测 & 团队花费批量更新 ==========
+
+/**
+ * 检测单个账号的团队角色，标记管理员
+ * @returns {boolean} 是否为管理员
+ */
+async function detectAdminRole(acc) {
+  if (!acc.token && !acc.access_token) return false;
+
+  try {
+    // 优先 cookie 调 fetchTeams
+    const teamsResp = acc.token
+      ? await cursorApi.fetchTeams(acc.token)
+      : null;
+
+    if (!teamsResp || teamsResp.status !== 200 || !teamsResp.data) {
+      // 如果 cookie 不行，标记为已检查但不是管理员
+      accountDb.upsert({ email: acc.email, team_role: "unknown", is_admin: 0 });
+      return false;
+    }
+
+    const teams = teamsResp.data.teams || (Array.isArray(teamsResp.data) ? teamsResp.data : []);
+    let isAdmin = false;
+    let teamRole = "TEAM_ROLE_MEMBER";
+
+    for (const team of teams) {
+      const role = team.role || "";
+      if (role === "TEAM_ROLE_OWNER") {
+        isAdmin = true;
+        teamRole = "TEAM_ROLE_OWNER";
+      }
+      // 同时更新 team_id 和 org_name
+      accountDb.upsert({
+        email: acc.email,
+        team_id: String(team.id || team.teamId || ""),
+        org_name: team.name || "",
+        team_role: teamRole,
+        is_admin: isAdmin ? 1 : 0,
+      });
+    }
+
+    if (teams.length === 0) {
+      accountDb.upsert({ email: acc.email, team_role: "none", is_admin: 0 });
+    }
+
+    console.log(`[admin-detect] ${acc.email}: role=${teamRole}, isAdmin=${isAdmin}`);
+    return isAdmin;
+  } catch (e) {
+    console.error(`[admin-detect] ${acc.email}: error: ${e.message}`);
+    return false;
+  }
+}
+
+/**
+ * 找到可用的管理员账号（DB 有缓存则用缓存，否则扫描所有未判定账号）
+ * @returns {object|null} 管理员账号对象
+ */
+async function findAdminAccount() {
+  // 1. DB 中已有管理员
+  const admins = accountDb.listAdmins();
+  if (admins.length > 0) {
+    console.log(`[admin-detect] Found ${admins.length} cached admin(s): ${admins.map(a => a.email).join(", ")}`);
+    return admins[0];
+  }
+
+  // 2. 没有管理员，扫描所有未判定角色的有效账号
+  const unchecked = accountDb.listUncheckedRole();
+  if (unchecked.length === 0) {
+    console.log("[admin-detect] No unchecked accounts to scan for admin role");
+    return null;
+  }
+
+  console.log(`[admin-detect] No cached admin, scanning ${unchecked.length} unchecked accounts...`);
+  for (const acc of unchecked) {
+    const isAdmin = await detectAdminRole(acc);
+    if (isAdmin) return accountDb.listAdmins()[0]; // 重新从 DB 读取完整记录
+  }
+
+  console.log("[admin-detect] No admin found after scanning all accounts");
+  return null;
+}
+
+/**
+ * 用管理员 token 调 get-team-spend 批量更新所有团队成员的花费数据
+ * @returns {Set<string>} 已被覆盖更新的邮箱集合
+ */
+async function updateTeamSpendFromAdmin(adminAcc) {
+  const updatedEmails = new Set();
+
+  // 先获取 teamId
+  let teamId = adminAcc.team_id;
+  if (!teamId && adminAcc.token) {
+    const teamsResp = await cursorApi.fetchTeams(adminAcc.token);
+    if (teamsResp.status === 200 && teamsResp.data) {
+      const teams = teamsResp.data.teams || (Array.isArray(teamsResp.data) ? teamsResp.data : []);
+      if (teams.length > 0) {
+        teamId = String(teams[0].id || teams[0].teamId || "");
+      }
+    }
+  }
+
+  if (!teamId) {
+    console.log("[team-spend] No teamId available, skip batch update");
+    return updatedEmails;
+  }
+
+  const token = adminAcc.token;
+  if (!token) {
+    console.log("[team-spend] Admin has no cookie token, skip batch update");
+    return updatedEmails;
+  }
+
+  let page = 1;
+  let totalPages = 1;
+
+  while (page <= totalPages) {
+    const resp = await cursorApi.fetchTeamSpend(token, teamId, page, 50);
+    if (resp.status !== 200 || !resp.data) {
+      console.log(`[team-spend] fetchTeamSpend page ${page}: ${resp.status} ${resp.raw || ""}`);
+      break;
+    }
+
+    const data = resp.data;
+    totalPages = data.totalPages || 1;
+    const members = data.teamMemberSpend || [];
+
+    console.log(`[team-spend] Page ${page}/${totalPages}: updating ${members.length} members`);
+
+    for (const member of members) {
+      const email = member.email || "";
+      if (!email) continue;
+
+      // 花费映射：
+      // includedSpendCents → plan_used（以美元计）
+      // effectivePerUserLimitDollars → plan_limit
+      // spendCents → on_demand_used（超额花费，以美元计）
+      const planUsed = member.includedSpendCents != null ? +(member.includedSpendCents / 100).toFixed(2) : null;
+      const planLimit = member.effectivePerUserLimitDollars != null ? member.effectivePerUserLimitDollars : null;
+      const onDemandUsed = member.spendCents != null ? +(member.spendCents / 100).toFixed(2) : 0;
+
+      const update = {
+        email,
+        plan_used: planUsed,
+        plan_limit: planLimit,
+        on_demand_used: onDemandUsed,
+        on_demand_limit: 0, // team-spend 无单独的 on_demand_limit
+        team_role: member.role || "TEAM_ROLE_MEMBER",
+        is_admin: member.role === "TEAM_ROLE_OWNER" ? 1 : 0,
+        org_name: adminAcc.org_name || "",
+        org_id: String(teamId),
+        team_id: String(teamId),
+        last_checked: new Date().toISOString(),
+      };
+
+      // 如果账号不存在，先创建（作为 new 账号入库）
+      if (!accountDb.exists(email)) {
+        update.account_status = "new";
+        update.token_valid = 0;
+      }
+
+      accountDb.upsert(update);
+      updatedEmails.add(email);
+    }
+
+    page++;
+  }
+
+  console.log(`[team-spend] Batch updated ${updatedEmails.size} members from admin ${adminAcc.email}`);
+  return updatedEmails;
+}
+
 // ========== 失败账号定时重试 ==========
 
 function startRetryFailedTimer() {
@@ -144,6 +315,8 @@ async function runRetryFailed() {
         if (r.accessToken) data.access_token = r.accessToken;
         if (r.refreshToken) data.refresh_token = r.refreshToken;
         accountDb.upsert(data);
+        // 登录成功后检测管理员角色
+        detectAdminRole({ email: r.email, token: r.token }).catch(() => {});
         success++;
       }
     }
@@ -164,15 +337,44 @@ async function runAutoCheck() {
   const accounts = accountDb.listAll().filter(a => a.account_status !== "disabled");
   const results = [];
 
-  for (let i = 0; i < accounts.length; i++) {
-    // 每个账号之间随机延迟 1-5 秒，避免同时打 Cursor API
+  // ===== 阶段 1：找管理员 =====
+  const adminAcc = await findAdminAccount();
+
+  // ===== 阶段 2：管理员批量更新团队花费 =====
+  let teamSpendCovered = new Set();
+  if (adminAcc) {
+    try {
+      teamSpendCovered = await updateTeamSpendFromAdmin(adminAcc);
+      sendToRenderer("autoCheck:adminUpdate", {
+        admin: adminAcc.email,
+        covered: teamSpendCovered.size,
+      });
+    } catch (e) {
+      console.error("[auto-check] Admin batch update failed:", e.message);
+    }
+  } else {
+    console.log("[auto-check] No admin available, falling back to per-account check");
+  }
+
+  // ===== 阶段 3：逐个检查未被 team-spend 覆盖的账号 =====
+  // 只检查有 token 且非 disabled 的账号（team-spend 已更新花费的可跳过 usage 查询，但仍需检查 token 有效性）
+  const needsIndividualCheck = accounts.filter(a => {
+    // 没有 token 的账号（new/failed）如果已被 team-spend 覆盖了花费，就不需要单独检查
+    if (!a.token && !a.access_token) return !teamSpendCovered.has(a.email);
+    // 有 token 的账号：如果被 team-spend 覆盖了花费，跳过 usage 查询，但仍可能需要检查 stripe 等
+    return !teamSpendCovered.has(a.email);
+  });
+
+  console.log(`[auto-check] ${teamSpendCovered.size} covered by admin, ${needsIndividualCheck.length} need individual check`);
+
+  for (let i = 0; i < needsIndividualCheck.length; i++) {
     if (i > 0) {
       const jitter = 1000 + Math.random() * 4000;
       await new Promise(r => setTimeout(r, jitter));
     }
 
-    const acc = accounts[i];
-    sendToRenderer("refresh:progress", { current: i + 1, total: accounts.length, email: acc.email });
+    const acc = needsIndividualCheck[i];
+    sendToRenderer("refresh:progress", { current: i + 1, total: needsIndividualCheck.length, email: acc.email });
 
     try {
       const update = await checkSingleAccount(acc);
@@ -183,7 +385,7 @@ async function runAutoCheck() {
     }
   }
 
-  // 根据设置决定是否拉取组织成员
+  // 组织成员发现（优先用管理员 token）
   if (orgDiscoveryEnabled) {
     await discoverOrgMembers(accounts);
   } else {
@@ -192,12 +394,13 @@ async function runAutoCheck() {
 
   sendToRenderer("autoCheck:finished", {
     time: new Date().toISOString(),
-    results: results.length,
-    success: results.filter(r => r.success).length,
+    results: results.length + teamSpendCovered.size,
+    success: results.filter(r => r.success).length + teamSpendCovered.size,
     failed: results.filter(r => !r.success).length,
+    adminCovered: teamSpendCovered.size,
   });
 
-  console.log(`[auto-check] Done. ${results.filter(r => r.success).length} ok, ${results.filter(r => !r.success).length} failed`);
+  console.log(`[auto-check] Done. Admin covered: ${teamSpendCovered.size}, individual: ${results.filter(r => r.success).length} ok, ${results.filter(r => !r.success).length} failed`);
   return results;
 }
 
@@ -307,15 +510,19 @@ async function discoverOrgMembers(accounts) {
   const validAccounts = accounts.filter(a => a.token_valid === 1 && a.token);
   if (validAccounts.length === 0) return;
 
+  // 优先用管理员 token
+  const admins = accountDb.listAdmins().filter(a => a.token);
+  const preferredAccounts = admins.length > 0 ? [...admins, ...validAccounts] : validAccounts;
+
   // Step 1: 确定 teamId
   let teamId = null;
   let teamName = "Team";
-  for (const acc of validAccounts) {
+  for (const acc of preferredAccounts) {
     if (acc.team_id) { teamId = acc.team_id; teamName = acc.org_name || "Team"; break; }
   }
 
   if (!teamId) {
-    const teamsResp = await cursorApi.fetchTeams(validAccounts[0].token);
+    const teamsResp = await cursorApi.fetchTeams(preferredAccounts[0].token);
     if (teamsResp.status !== 200 || !teamsResp.data) {
       console.log("[org-discovery] fetchTeams:", teamsResp.status, teamsResp.raw || "");
       return;
@@ -329,8 +536,8 @@ async function discoverOrgMembers(accounts) {
 
   if (!teamId) return;
 
-  // Step 2: 用 get-team-spend 拉取计费成员（分页），任意 Token 即可
-  const token = validAccounts[0].token;
+  // Step 2: 用 get-team-spend 拉取计费成员（分页），优先管理员 Token
+  const token = preferredAccounts[0].token;
   let page = 1;
   let totalPages = 1;
   let discovered = 0;
@@ -390,6 +597,8 @@ async function discoverOrgMembers(accounts) {
             if (r.accessToken) data.access_token = r.accessToken;
             if (r.refreshToken) data.refresh_token = r.refreshToken;
             accountDb.upsert(data);
+            // 登录成功后检测管理员角色
+            detectAdminRole({ email: r.email, token: r.token }).catch(() => {});
             loginSuccess++;
           }
         }

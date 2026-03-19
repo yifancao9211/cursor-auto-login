@@ -209,8 +209,16 @@ onMounted(() => store.loadAccounts());
             <PackagePlus class="w-4 h-4" />
           </div>
           <div class="flex flex-col min-w-0">
-            <span class="text-sm font-bold text-apple-text truncate">{{ acc.email }}</span>
-            <span v-if="acc.org_name" class="text-[10px] text-apple-textMuted">{{ acc.org_name }}</span>
+            <div class="flex items-center gap-1.5">
+              <span class="text-sm font-bold text-apple-text truncate">{{ acc.email }}</span>
+              <span v-if="acc.is_admin" class="px-1.5 py-0.5 rounded text-[9px] font-black tracking-wider bg-amber-500/15 text-amber-600 flex-shrink-0">👑 ADMIN</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <span v-if="acc.org_name" class="text-[10px] text-apple-textMuted">{{ acc.org_name }}</span>
+              <span v-if="acc.plan_limit != null" class="text-[10px] font-bold" :class="(acc.plan_limit - (acc.plan_used || 0)) > 0 ? 'text-apple-success' : 'text-apple-danger'">
+                余额 ${{ +((acc.plan_limit || 0) - (acc.plan_used || 0)).toFixed(2) }} / ${{ acc.plan_limit }}
+              </span>
+            </div>
           </div>
         </div>
         <div class="flex items-center gap-2 flex-shrink-0">
@@ -249,9 +257,15 @@ onMounted(() => store.loadAccounts());
             <AlertTriangle class="w-4 h-4" />
           </div>
           <div class="flex flex-col min-w-0">
-            <span class="text-sm font-bold text-apple-text truncate">{{ acc.email }}</span>
+            <div class="flex items-center gap-1.5">
+              <span class="text-sm font-bold text-apple-text truncate">{{ acc.email }}</span>
+              <span v-if="acc.is_admin" class="px-1.5 py-0.5 rounded text-[9px] font-black tracking-wider bg-amber-500/15 text-amber-600 flex-shrink-0">👑 ADMIN</span>
+            </div>
             <div class="flex items-center gap-2">
               <span v-if="acc.membership_type" class="text-[10px] font-bold uppercase tracking-wider text-apple-danger/70">{{ acc.membership_type }}</span>
+              <span v-if="acc.plan_limit != null" class="text-[10px] font-bold" :class="(acc.plan_limit - (acc.plan_used || 0)) > 0 ? 'text-apple-success' : 'text-apple-danger'">
+                余额 ${{ +((acc.plan_limit || 0) - (acc.plan_used || 0)).toFixed(2) }} / ${{ acc.plan_limit }}
+              </span>
               <span v-if="acc.last_checked" class="text-[10px] text-apple-textMuted flex items-center gap-0.5">
                 <BadgeInfo class="w-3 h-3" /> {{ new Date(acc.last_checked).toLocaleString() }}
               </span>

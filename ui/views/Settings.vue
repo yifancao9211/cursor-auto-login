@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onUnmounted, computed } from "vue";
+import { ref, watch, onMounted, onUnmounted, computed } from "vue";
 import { useAppStore } from "../stores/app.js";
 import { KeyRound, Layers, HardDrive, Cpu, ShieldCheck, Activity, Timer, PlayCircle, Download, RefreshCw, CheckCircle2, AlertCircle, Users, RotateCcw, Clock } from "lucide-vue-next";
 
@@ -43,6 +43,25 @@ onMounted(async () => {
 onUnmounted(() => {
   if (cleanupUpdateListener) cleanupUpdateListener();
 });
+
+// 即时持久化 toggle 开关和时间设置（无需手动点保存）
+async function syncScheduleToMain() {
+  Object.assign(store.settings, {
+    orgDiscoveryEnabled: form.value.orgDiscoveryEnabled,
+    retryFailedEnabled: form.value.retryFailedEnabled,
+    retryFailedTime: form.value.retryFailedTime,
+  });
+  store.saveSettings();
+  await window.api.updateScheduleSettings({
+    orgDiscoveryEnabled: form.value.orgDiscoveryEnabled,
+    retryFailedEnabled: form.value.retryFailedEnabled,
+    retryFailedTime: form.value.retryFailedTime,
+  });
+}
+
+watch(() => form.value.retryFailedEnabled, syncScheduleToMain);
+watch(() => form.value.orgDiscoveryEnabled, syncScheduleToMain);
+watch(() => form.value.retryFailedTime, syncScheduleToMain);
 
 async function handleSave() {
   Object.assign(store.settings, form.value);

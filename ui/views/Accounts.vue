@@ -342,6 +342,9 @@ onMounted(async () => {
                 <span v-if="row.membership_type" :class="['px-1.5 py-0.5 rounded uppercase text-[9px] font-black tracking-wider', row.membership_type === 'free' ? 'bg-apple-danger/10 text-apple-danger' : row.membership_type === 'enterprise' ? 'bg-apple-success/10 text-apple-success' : 'bg-apple-warning/10 text-apple-warning']">
                   {{ row.membership_type }}
                 </span>
+                <span v-if="row.is_admin" class="px-1.5 py-0.5 rounded text-[9px] font-black tracking-wider bg-amber-500/15 text-amber-600 flex items-center gap-0.5">
+                  👑 ADMIN
+                </span>
                 <span :class="['px-1.5 py-0.5 rounded text-[10px] font-bold tracking-wide flex items-center gap-1', row.token_valid ? 'bg-apple-success/10 text-apple-success' : 'bg-apple-danger/10 text-apple-danger']">
                   <CheckCircle2 v-if="row.token_valid" class="w-2.5 h-2.5" />
                   <AlertCircle v-else class="w-2.5 h-2.5" />

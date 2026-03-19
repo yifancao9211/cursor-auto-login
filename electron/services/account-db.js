@@ -48,6 +48,8 @@ export const accountDb = {
     addCol("org_id", "TEXT");
     addCol("stripe_customer_id", "TEXT");
     addCol("team_id", "TEXT");
+    addCol("is_admin", "INTEGER DEFAULT 0");
+    addCol("team_role", "TEXT");
 
     // 把旧的没有 account_status 的记录，根据 token_valid 推断状态
     db.exec(`UPDATE accounts SET account_status = 'active' WHERE account_status IS NULL AND token_valid = 1 AND token IS NOT NULL`);
@@ -66,6 +68,20 @@ export const accountDb = {
   listActive() { return this.listByStatus("active"); },
   listNew() { return this.listByStatus("new"); },
   listFailed() { return this.listByStatus("failed"); },
+
+  /** 返回有效的管理员账号 (is_admin=1 且 token_valid=1 且有 token) */
+  listAdmins() {
+    return db.prepare(
+      "SELECT * FROM accounts WHERE is_admin = 1 AND token_valid = 1 AND (token IS NOT NULL OR access_token IS NOT NULL) ORDER BY created_at DESC"
+    ).all();
+  },
+
+  /** 返回 team_role 未判定且有有效 token 的账号 */
+  listUncheckedRole() {
+    return db.prepare(
+      "SELECT * FROM accounts WHERE team_role IS NULL AND token_valid = 1 AND (token IS NOT NULL OR access_token IS NOT NULL) ORDER BY created_at DESC"
+    ).all();
+  },
 
   upsert(account) {
     const existing = db.prepare("SELECT email FROM accounts WHERE email = ?").get(account.email);
