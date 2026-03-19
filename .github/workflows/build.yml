@@ -72,6 +72,17 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Create app-update.yml
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          APP_PATH=$(find release/mac-arm64 -name '*.app' -maxdepth 1 | head -1)
+          cat > "$APP_PATH/Contents/Resources/app-update.yml" << EOF
+          provider: github
+          owner: yifancao9211
+          repo: cursor-auto-login
+          EOF
+          echo "Created app-update.yml in $APP_PATH/Contents/Resources/"
+
       - name: Ad-hoc codesign
         if: steps.check.outputs.exists == 'false'
         run: |
