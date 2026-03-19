@@ -66,11 +66,50 @@ jobs:
         if: steps.check.outputs.exists == 'false'
         run: npx vite build
 
-      - name: Build Electron app
+      - name: Build Electron app (unpacked)
         if: steps.check.outputs.exists == 'false'
-        run: npx electron-builder --mac --arm64 --publish never
+        run: npx electron-builder --mac --arm64 --dir --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Ad-hoc codesign
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          APP_PATH=$(find release/mac-arm64 -name '*.app' -maxdepth 1 | head -1)
+          echo "Signing: $APP_PATH"
+          codesign --force --deep --sign - "$APP_PATH"
+          codesign --verify --deep "$APP_PATH" && echo "Signature OK"
+
+      - name: Package DMG and ZIP from signed app
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          APP_PATH=$(find release/mac-arm64 -name '*.app' -maxdepth 1 | head -1)
+          APP_NAME=$(basename "$APP_PATH" .app)
+          VERSION="${{ steps.pkg.outputs.version }}"
+
+          # Create ZIP
+          cd release/mac-arm64
+          zip -ry "../${APP_NAME}-${VERSION}-arm64-mac.zip" "$(basename "$APP_PATH")"
+          cd ../..
+
+          # Create DMG
+          hdiutil create -volname "${APP_NAME}" -srcfolder "$APP_PATH" -ov -format UDZO "release/${APP_NAME}-${VERSION}-arm64.dmg"
+
+          # Generate latest-mac.yml for electron-updater
+          ZIP_SIZE=$(stat -f%z "release/${APP_NAME}-${VERSION}-arm64-mac.zip")
+          ZIP_SHA512=$(shasum -a 512 "release/${APP_NAME}-${VERSION}-arm64-mac.zip" | awk '{print $1}' | xxd -r -p | base64)
+          cat > release/latest-mac.yml << EOF
+          version: ${VERSION}
+          files:
+            - url: ${APP_NAME}-${VERSION}-arm64-mac.zip
+              sha512: ${ZIP_SHA512}
+              size: ${ZIP_SIZE}
+          path: ${APP_NAME}-${VERSION}-arm64-mac.zip
+          sha512: ${ZIP_SHA512}
+          releaseDate: $(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
+          EOF
+
+          ls -la release/*.dmg release/*.zip release/*.yml
 
       - name: Create tag
         if: steps.check.outputs.exists == 'false'
