@@ -318,6 +318,33 @@ function stopRetryFailedTimer() {
 }
 
 async function runRetryFailed() {
+  // ===== 阶段 1：主动刷新所有有 refresh_token 账号的 access_token =====
+  const allAccounts = accountDb.listAll().filter(a => a.refresh_token && a.account_status !== "disabled");
+  if (allAccounts.length > 0) {
+    console.log(`[retry-failed] 刷新 ${allAccounts.length} 个账号的 access_token...`);
+    sendToRenderer("retryFailed:refreshStart", { count: allAccounts.length });
+    let refreshed = 0;
+    for (const acc of allAccounts) {
+      const refreshResult = await tokenExchange.refreshAccessToken(acc.refresh_token);
+      if (refreshResult.success) {
+        const update = { email: acc.email, access_token: refreshResult.accessToken };
+        if (refreshResult.refreshToken && refreshResult.refreshToken !== acc.refresh_token) {
+          update.refresh_token = refreshResult.refreshToken;
+        }
+        accountDb.upsert(update);
+        refreshed++;
+        console.log(`[retry-failed] ${acc.email}: access_token 刷新成功`);
+      } else {
+        console.log(`[retry-failed] ${acc.email}: access_token 刷新失败(${refreshResult.error})`);
+      }
+      // 每个之间延迟 500ms 避免频繁请求
+      await new Promise(r => setTimeout(r, 500));
+    }
+    console.log(`[retry-failed] Token 刷新完成: ${refreshed}/${allAccounts.length} 成功`);
+    sendToRenderer("retryFailed:refreshDone", { total: allAccounts.length, refreshed });
+  }
+
+  // ===== 阶段 2：重试失败和新入库的账号登录 =====
   const failedAccounts = accountDb.listByStatus("failed");
   const newAccounts = accountDb.listByStatus("new");
   const retryList = [...failedAccounts, ...newAccounts];
@@ -505,21 +532,6 @@ async function checkSingleAccount(acc) {
     }
   }
 
-  // 主动刷新：如果有 refresh_token，每次巡检都尝试刷新 access_token 保持最新
-  if (acc.refresh_token) {
-    const refreshResult = await tokenExchange.refreshAccessToken(acc.refresh_token);
-    if (refreshResult.success) {
-      console.log(`[check] ${acc.email}: 主动刷新 access_token 成功`);
-      acc.access_token = refreshResult.accessToken;
-      update.access_token = refreshResult.accessToken;
-      if (refreshResult.refreshToken && refreshResult.refreshToken !== acc.refresh_token) {
-        acc.refresh_token = refreshResult.refreshToken;
-        update.refresh_token = refreshResult.refreshToken;
-      }
-    } else {
-      console.log(`[check] ${acc.email}: 主动刷新失败(${refreshResult.error})，使用现有 token 继续`);
-    }
-  }
 
   // 智能调用：优先 Bearer (accessToken → api2.cursor.sh)，fallback Cookie
   const usage = await cursorApi.fetchUsageSmart(acc);
