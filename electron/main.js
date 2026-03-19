@@ -294,6 +294,35 @@ async function discoverOrgMembers(accounts) {
   if (discovered > 0) {
     console.log(`[org-discovery] Discovered ${discovered} new billable members`);
     sendToRenderer("org:newMembers", { count: discovered });
+
+    // 自动登录新发现的成员
+    const newAccounts = accountDb.listByStatus("new");
+    const newEmails = newAccounts.map(a => a.email);
+    if (newEmails.length > 0) {
+      console.log(`[org-discovery] Auto-login ${newEmails.length} new members...`);
+      sendToRenderer("org:autoLoginStart", { count: newEmails.length });
+      try {
+        const DEFAULT_PASSWORD = "abcd@1234";
+        const results = await loginService.batchLogin(newEmails, DEFAULT_PASSWORD, false, (progress) => {
+          sendToRenderer("login:progress", progress);
+        });
+        let loginSuccess = 0;
+        for (const r of results) {
+          if (r.success && r.token) {
+            const data = { email: r.email, token: r.token, account_status: "active", token_valid: 1 };
+            if (r.accessToken) data.access_token = r.accessToken;
+            if (r.refreshToken) data.refresh_token = r.refreshToken;
+            accountDb.upsert(data);
+            loginSuccess++;
+          }
+        }
+        console.log(`[org-discovery] Auto-login done: ${loginSuccess}/${newEmails.length} success`);
+        sendToRenderer("org:autoLoginDone", { total: newEmails.length, success: loginSuccess });
+      } catch (err) {
+        console.error("[org-discovery] Auto-login failed:", err.message);
+        sendToRenderer("org:autoLoginDone", { total: newEmails.length, success: 0, error: err.message });
+      }
+    }
   } else {
     console.log("[org-discovery] No new members found");
   }
