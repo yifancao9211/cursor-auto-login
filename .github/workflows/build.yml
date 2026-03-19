@@ -95,7 +95,8 @@ jobs:
         if: steps.check.outputs.exists == 'false'
         run: |
           APP_PATH=$(find release/mac-arm64 -name '*.app' -maxdepth 1 | head -1)
-          APP_NAME=$(basename "$APP_PATH" .app)
+          # electron-builder uses dots instead of spaces in filenames
+          APP_NAME=$(basename "$APP_PATH" .app | tr ' ' '.')
           VERSION="${{ steps.pkg.outputs.version }}"
 
           # Create ZIP
