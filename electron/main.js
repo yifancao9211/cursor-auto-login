@@ -199,6 +199,17 @@ async function updateTeamSpendFromAdmin(adminAcc) {
     return updatedEmails;
   }
 
+  // 先用管理员调 usage-summary 拿 plan.limit（团队共享的套餐上限）
+  let planLimitFromAdmin = null;
+  const usageResp = await cursorApi.fetchUsageSmart(adminAcc);
+  if (usageResp.status === 200 && usageResp.data) {
+    const plan = usageResp.data.individualUsage?.plan;
+    if (plan && plan.limit != null) {
+      planLimitFromAdmin = +(plan.limit / 100).toFixed(2);
+      console.log(`[team-spend] Got plan.limit from admin usage-summary: $${planLimitFromAdmin}`);
+    }
+  }
+
   let page = 1;
   let totalPages = 1;
 
@@ -219,20 +230,26 @@ async function updateTeamSpendFromAdmin(adminAcc) {
       const email = member.email || "";
       if (!email) continue;
 
-      // 花费映射：
-      // includedSpendCents → plan_used（以美元计）
-      // effectivePerUserLimitDollars → plan_limit
-      // spendCents → on_demand_used（超额花费，以美元计）
-      const planUsed = member.includedSpendCents != null ? +(member.includedSpendCents / 100).toFixed(2) : null;
-      const planLimit = member.effectivePerUserLimitDollars != null ? member.effectivePerUserLimitDollars : null;
+      // 花费映射（4 个值，与 usage-summary 对齐）：
+      // includedSpendCents = plan.breakdown.total（含 bonus），不是 plan.used
+      // plan_used = min(includedSpendCents, plan_limit_cents) / 100（截断到上限）
+      // plan_limit = 管理员 usage-summary 的 plan.limit
+      // on_demand_used = spendCents / 100（= onDemand.used）
+      // on_demand_limit = effectivePerUserLimitDollars（= onDemand.limit / 100）
+      const planLimitCents = planLimitFromAdmin != null ? Math.round(planLimitFromAdmin * 100) : null;
+      const planUsedCents = member.includedSpendCents != null && planLimitCents != null
+        ? Math.min(member.includedSpendCents, planLimitCents)
+        : (member.includedSpendCents || 0);
+      const planUsed = +(planUsedCents / 100).toFixed(2);
       const onDemandUsed = member.spendCents != null ? +(member.spendCents / 100).toFixed(2) : 0;
+      const onDemandLimit = member.effectivePerUserLimitDollars != null ? member.effectivePerUserLimitDollars : null;
 
       const update = {
         email,
         plan_used: planUsed,
-        plan_limit: planLimit,
+        plan_limit: planLimitFromAdmin,
         on_demand_used: onDemandUsed,
-        on_demand_limit: 0, // team-spend 无单独的 on_demand_limit
+        on_demand_limit: onDemandLimit,
         team_role: member.role || "TEAM_ROLE_MEMBER",
         is_admin: member.role === "TEAM_ROLE_OWNER" ? 1 : 0,
         org_name: adminAcc.org_name || "",
@@ -404,18 +421,33 @@ async function runAutoCheck() {
   return results;
 }
 
-/** 手动刷新：并发检查所有账号，无延迟 */
+/** 手动刷新：管理员优先批量更新 + 未覆盖账号并发检查 */
 async function runQuickRefresh() {
   console.log("[refresh] Starting quick refresh...");
   const accounts = accountDb.listAll().filter(a => a.account_status !== "disabled");
   const results = [];
-  const BATCH_SIZE = 5;
 
-  for (let i = 0; i < accounts.length; i += BATCH_SIZE) {
-    const batch = accounts.slice(i, i + BATCH_SIZE);
+  // 管理员优先批量更新
+  const adminAcc = await findAdminAccount();
+  let teamSpendCovered = new Set();
+  if (adminAcc) {
+    try {
+      teamSpendCovered = await updateTeamSpendFromAdmin(adminAcc);
+    } catch (e) {
+      console.error("[refresh] Admin batch update failed:", e.message);
+    }
+  }
+
+  // 未覆盖的账号并发检查
+  const needsCheck = accounts.filter(a => !teamSpendCovered.has(a.email));
+  console.log(`[refresh] ${teamSpendCovered.size} covered by admin, ${needsCheck.length} need individual check`);
+
+  const BATCH_SIZE = 5;
+  for (let i = 0; i < needsCheck.length; i += BATCH_SIZE) {
+    const batch = needsCheck.slice(i, i + BATCH_SIZE);
     const batchResults = await Promise.allSettled(
       batch.map(async (acc, idx) => {
-        sendToRenderer("refresh:progress", { current: i + idx + 1, total: accounts.length, email: acc.email });
+        sendToRenderer("refresh:progress", { current: i + idx + 1, total: needsCheck.length, email: acc.email });
         const update = await checkSingleAccount(acc);
         accountDb.upsert(update);
         return { email: acc.email, success: true };
@@ -426,8 +458,8 @@ async function runQuickRefresh() {
     }
   }
 
-  sendToRenderer("refresh:done", { total: results.length, success: results.filter(r => r.success).length });
-  console.log(`[refresh] Done. ${results.filter(r => r.success).length} ok, ${results.filter(r => !r.success).length} failed`);
+  sendToRenderer("refresh:done", { total: results.length + teamSpendCovered.size, success: results.filter(r => r.success).length + teamSpendCovered.size });
+  console.log(`[refresh] Done. Admin covered: ${teamSpendCovered.size}, individual: ${results.filter(r => r.success).length} ok, ${results.filter(r => !r.success).length} failed`);
   return results;
 }
 

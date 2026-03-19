@@ -215,8 +215,8 @@ onMounted(() => store.loadAccounts());
             </div>
             <div class="flex items-center gap-2">
               <span v-if="acc.org_name" class="text-[10px] text-apple-textMuted">{{ acc.org_name }}</span>
-              <span v-if="acc.plan_limit != null" class="text-[10px] font-bold" :class="(acc.plan_limit - (acc.plan_used || 0)) > 0 ? 'text-apple-success' : 'text-apple-danger'">
-                余额 ${{ +((acc.plan_limit || 0) - (acc.plan_used || 0)).toFixed(2) }} / ${{ acc.plan_limit }}
+              <span v-if="acc.plan_limit != null || acc.on_demand_limit != null" class="text-[10px] font-bold" :class="((acc.plan_limit || 0) + (acc.on_demand_limit || 0) - (acc.plan_used || 0) - (acc.on_demand_used || 0)) > 0 ? 'text-apple-success' : 'text-apple-danger'">
+                余额 ${{ +((acc.plan_limit || 0) + (acc.on_demand_limit || 0) - (acc.plan_used || 0) - (acc.on_demand_used || 0)).toFixed(2) }}
               </span>
             </div>
           </div>
@@ -263,8 +263,8 @@ onMounted(() => store.loadAccounts());
             </div>
             <div class="flex items-center gap-2">
               <span v-if="acc.membership_type" class="text-[10px] font-bold uppercase tracking-wider text-apple-danger/70">{{ acc.membership_type }}</span>
-              <span v-if="acc.plan_limit != null" class="text-[10px] font-bold" :class="(acc.plan_limit - (acc.plan_used || 0)) > 0 ? 'text-apple-success' : 'text-apple-danger'">
-                余额 ${{ +((acc.plan_limit || 0) - (acc.plan_used || 0)).toFixed(2) }} / ${{ acc.plan_limit }}
+              <span v-if="acc.plan_limit != null || acc.on_demand_limit != null" class="text-[10px] font-bold" :class="((acc.plan_limit || 0) + (acc.on_demand_limit || 0) - (acc.plan_used || 0) - (acc.on_demand_used || 0)) > 0 ? 'text-apple-success' : 'text-apple-danger'">
+                余额 ${{ +((acc.plan_limit || 0) + (acc.on_demand_limit || 0) - (acc.plan_used || 0) - (acc.on_demand_used || 0)).toFixed(2) }}
               </span>
               <span v-if="acc.last_checked" class="text-[10px] text-apple-textMuted flex items-center gap-0.5">
                 <BadgeInfo class="w-3 h-3" /> {{ new Date(acc.last_checked).toLocaleString() }}
