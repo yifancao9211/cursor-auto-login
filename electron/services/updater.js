@@ -11,6 +11,13 @@ let _sendToRenderer = null;
 function init(sendToRenderer) {
   _sendToRenderer = sendToRenderer;
 
+  // 手动设置 GitHub 发布源（替代 app-update.yml）
+  autoUpdater.setFeedURL({
+    provider: "github",
+    owner: "yifancao9211",
+    repo: "cursor-auto-login",
+  });
+
   // 配置
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
