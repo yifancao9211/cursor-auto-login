@@ -532,6 +532,31 @@ async function checkSingleAccount(acc) {
     }
   }
 
+  // 检查 access_token 是否过期或即将过期（7天内），如有 refresh_token 则主动刷新
+  if (acc.access_token && acc.refresh_token) {
+    try {
+      const payload = JSON.parse(Buffer.from(acc.access_token.split('.')[1], 'base64').toString());
+      const expiresIn = (payload.exp * 1000) - Date.now();
+      const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
+      if (expiresIn < SEVEN_DAYS) {
+        console.log(`[check] ${acc.email}: access_token ${expiresIn <= 0 ? '已过期' : `${Math.round(expiresIn / 86400000)}天后过期`}，主动刷新...`);
+        const refreshResult = await tokenExchange.refreshAccessToken(acc.refresh_token);
+        if (refreshResult.success) {
+          console.log(`[check] ${acc.email}: access_token 刷新成功`);
+          acc.access_token = refreshResult.accessToken;
+          update.access_token = refreshResult.accessToken;
+          if (refreshResult.refreshToken && refreshResult.refreshToken !== acc.refresh_token) {
+            acc.refresh_token = refreshResult.refreshToken;
+            update.refresh_token = refreshResult.refreshToken;
+          }
+        } else {
+          console.log(`[check] ${acc.email}: access_token 刷新失败(${refreshResult.error})`);
+        }
+      }
+    } catch {
+      // JWT 解析失败，跳过过期检查
+    }
+  }
 
   // 智能调用：优先 Bearer (accessToken → api2.cursor.sh)，fallback Cookie
   const usage = await cursorApi.fetchUsageSmart(acc);
