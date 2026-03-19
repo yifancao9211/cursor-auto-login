@@ -154,4 +154,47 @@ export const tokenExchange = {
       return { success: false, error: e.message };
     }
   },
+
+  /**
+   * 用 refreshToken 刷新获取新的 accessToken
+   *
+   * @param {string} refreshToken - refresh_token 值
+   * @returns {Promise<{success: boolean, accessToken?: string, refreshToken?: string, error?: string}>}
+   */
+  async refreshAccessToken(refreshToken) {
+    if (!refreshToken) return { success: false, error: "no_refresh_token" };
+
+    try {
+      const resp = await httpRequest(
+        "https://api2.cursor.sh/auth/refresh",
+        {
+          "user-agent": "Cursor/0.50.0",
+          "content-type": "application/json",
+        },
+        "POST",
+        { refreshToken }
+      );
+
+      if (resp.status === 200) {
+        try {
+          const data = JSON.parse(resp.raw);
+          if (data.accessToken) {
+            console.log("[token-refresh] Successfully refreshed accessToken");
+            return {
+              success: true,
+              accessToken: data.accessToken,
+              refreshToken: data.refreshToken || refreshToken, // 有些接口会返回新的 refreshToken
+            };
+          }
+        } catch {
+          // parse error
+        }
+      }
+
+      console.log(`[token-refresh] Refresh failed: status=${resp.status}`);
+      return { success: false, error: `refresh returned ${resp.status}` };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  },
 };
