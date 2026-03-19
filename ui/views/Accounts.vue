@@ -8,6 +8,7 @@ const store = useAppStore();
 const multipleSelection = ref(new Set());
 const switchDialogVisible = ref(false);
 const switchTarget = ref(null);
+const refreshingSingle = ref(new Set());
 const balanceFilter = ref("all");
 const tokenDialogVisible = ref(false);
 const tokenDetail = ref(null);
@@ -73,6 +74,16 @@ function toggleSelect(email) {
   if (s.has(email)) s.delete(email);
   else s.add(email);
   multipleSelection.value = s;
+}
+
+async function handleRefreshSingle(row) {
+  refreshingSingle.value.add(row.email);
+  try {
+    await window.api.refreshSingleAccount(row.email);
+    await store.loadAccounts();
+  } finally {
+    refreshingSingle.value.delete(row.email);
+  }
 }
 
 function handleUse(row) {
@@ -360,9 +371,19 @@ onMounted(async () => {
 
           <!-- Actions Row -->
           <div class="flex justify-between items-center relative z-10 pt-1 border-t border-apple-border/40 mt-1">
-            <button class="text-xs font-semibold text-apple-textMuted hover:text-apple-accent hover:bg-apple-accent/10 px-2.5 py-1.5 rounded-md transition-colors" @click.stop="handleViewToken(row)">
-              查看 Token
-            </button>
+            <div class="flex items-center gap-1">
+              <button class="text-xs font-semibold text-apple-textMuted hover:text-apple-accent hover:bg-apple-accent/10 px-2.5 py-1.5 rounded-md transition-colors" @click.stop="handleViewToken(row)">
+                查看 Token
+              </button>
+              <button 
+                class="text-xs font-semibold text-apple-textMuted hover:text-orange-600 hover:bg-orange-500/10 px-2.5 py-1.5 rounded-md transition-colors flex items-center gap-1" 
+                @click.stop="handleRefreshSingle(row)"
+                :disabled="refreshingSingle.has(row.email)"
+              >
+                <RefreshCw :class="['w-3 h-3', { 'animate-spin': refreshingSingle.has(row.email) }]" />
+                {{ refreshingSingle.has(row.email) ? '刷新中...' : '刷新' }}
+              </button>
+            </div>
             <button 
               v-if="row.token_valid" 
               class="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-bold transition-all shadow-sm active:scale-95" 

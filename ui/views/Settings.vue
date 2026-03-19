@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, computed } from "vue";
 import { useAppStore } from "../stores/app.js";
-import { KeyRound, Layers, HardDrive, Cpu, ShieldCheck, Activity, Timer, PlayCircle, Download, RefreshCw, CheckCircle2, AlertCircle } from "lucide-vue-next";
+import { KeyRound, Layers, HardDrive, Cpu, ShieldCheck, Activity, Timer, PlayCircle, Download, RefreshCw, CheckCircle2, AlertCircle, Users, RotateCcw, Clock } from "lucide-vue-next";
 
 const store = useAppStore();
 
@@ -9,6 +9,9 @@ const form = ref({
   batchPassword: "",
   concurrency: 3,
   autoCheckMinutes: 30,
+  orgDiscoveryEnabled: true,
+  retryFailedEnabled: false,
+  retryFailedTime: "00:00",
 });
 
 const runningAutoCheck = ref(false);
@@ -24,6 +27,9 @@ onMounted(async () => {
     batchPassword: store.settings.batchPassword,
     concurrency: store.settings.concurrency,
     autoCheckMinutes: store.settings.autoCheckMinutes || 30,
+    orgDiscoveryEnabled: store.settings.orgDiscoveryEnabled !== false,
+    retryFailedEnabled: store.settings.retryFailedEnabled || false,
+    retryFailedTime: store.settings.retryFailedTime || "00:00",
   };
   // 获取版本号
   appVersion.value = await window.api.getAppVersion();
@@ -38,10 +44,16 @@ onUnmounted(() => {
   if (cleanupUpdateListener) cleanupUpdateListener();
 });
 
-function handleSave() {
+async function handleSave() {
   Object.assign(store.settings, form.value);
   store.saveSettings();
   store.setAutoCheckInterval(form.value.autoCheckMinutes);
+  // 通知 main 进程更新定时重试和组织发现设置
+  await window.api.updateScheduleSettings({
+    orgDiscoveryEnabled: form.value.orgDiscoveryEnabled,
+    retryFailedEnabled: form.value.retryFailedEnabled,
+    retryFailedTime: form.value.retryFailedTime,
+  });
   alert("设置已保存！");
 }
 
@@ -182,6 +194,67 @@ const updateLabel = computed(() => {
           <span v-if="store.autoCheckStatus?.running" class="flex items-center gap-1 text-apple-success font-bold">
             <div class="w-1.5 h-1.5 rounded-full bg-apple-success animate-pulse"></div> 运行中
           </span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Org Discovery Settings -->
+    <div class="apple-glass rounded-2xl overflow-hidden flex flex-col no-drag">
+      <div class="px-6 py-4 flex items-center gap-3 bg-white/40 border-b border-apple-border/50">
+        <div class="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center text-purple-600">
+          <Users class="w-4 h-4" />
+        </div>
+        <h3 class="font-bold text-apple-text">组织成员发现</h3>
+      </div>
+      <div class="p-6 flex flex-col gap-4 bg-white/20">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div class="flex flex-col gap-1">
+            <span class="font-bold text-sm text-apple-text">自动发现组织新成员</span>
+            <span class="text-xs text-apple-textMuted">巡检时自动查询组织计费成员，发现新成员自动加入数据库并尝试登录。</span>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" v-model="form.orgDiscoveryEnabled" class="sr-only peer">
+            <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-purple-300 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- Retry Failed Accounts -->
+    <div class="apple-glass rounded-2xl overflow-hidden flex flex-col no-drag">
+      <div class="px-6 py-4 flex items-center gap-3 bg-white/40 border-b border-apple-border/50">
+        <div class="w-8 h-8 rounded-lg bg-red-500/10 flex items-center justify-center text-red-600">
+          <RotateCcw class="w-4 h-4" />
+        </div>
+        <h3 class="font-bold text-apple-text">失败账号定时重试</h3>
+      </div>
+      <div class="p-6 flex flex-col gap-4 bg-white/20">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div class="flex flex-col gap-1">
+            <span class="font-bold text-sm text-apple-text">启用定时重试</span>
+            <span class="text-xs text-apple-textMuted">每天在指定时间自动对所有失败账号重新尝试登录。</span>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" v-model="form.retryFailedEnabled" class="sr-only peer">
+            <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-red-300 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-500"></div>
+          </label>
+        </div>
+
+        <div v-if="form.retryFailedEnabled" class="h-px w-full bg-apple-border/50"></div>
+
+        <div v-if="form.retryFailedEnabled" class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div class="flex flex-col gap-1">
+            <span class="font-bold text-sm text-apple-text">重试时间</span>
+            <span class="text-xs text-apple-textMuted">每天此时间自动重试所有失败和新入库的账号登录。</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <Clock class="w-4 h-4 text-apple-textMuted" />
+            <input
+              type="time"
+              v-model="form.retryFailedTime"
+              class="bg-white border border-apple-border rounded-lg px-3 py-2 text-sm outline-none focus:border-apple-accent focus:ring-2 focus:ring-apple-accent/20 transition-all font-mono"
+            />
+          </div>
         </div>
       </div>
     </div>

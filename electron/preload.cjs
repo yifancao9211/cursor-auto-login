@@ -91,4 +91,10 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.on("update:status", handler);
     return () => ipcRenderer.removeListener("update:status", handler);
   },
+
+  // Schedule settings
+  updateScheduleSettings: (settings) => ipcRenderer.invoke("schedule:updateSettings", settings),
+
+  // Single account refresh
+  refreshSingleAccount: (email) => ipcRenderer.invoke("accounts:refreshSingle", email),
 });

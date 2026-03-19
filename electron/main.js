@@ -18,6 +18,10 @@ let mainWindow;
 let autoCheckTimer = null;
 let autoCheckIntervalMs = 30 * 60 * 1000; // 默认 30 分钟
 let lastAutoCheckTime = null;
+let orgDiscoveryEnabled = true;
+let retryFailedEnabled = false;
+let retryFailedTime = "00:00";
+let retryFailedTimer = null;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -83,6 +87,75 @@ function stopAutoCheck() {
   }
 }
 
+// ========== 失败账号定时重试 ==========
+
+function startRetryFailedTimer() {
+  stopRetryFailedTimer();
+  if (!retryFailedEnabled) return;
+
+  const [h, m] = retryFailedTime.split(":").map(Number);
+  const now = new Date();
+  const target = new Date(now);
+  target.setHours(h, m, 0, 0);
+  if (target <= now) target.setDate(target.getDate() + 1);
+  const msUntilTarget = target - now;
+
+  console.log(`[retry-failed] Scheduled at ${retryFailedTime}, next run in ${Math.round(msUntilTarget / 60000)} min`);
+
+  retryFailedTimer = setTimeout(async () => {
+    await runRetryFailed();
+    // 24小时后再次执行
+    retryFailedTimer = setInterval(() => runRetryFailed(), 24 * 60 * 60 * 1000);
+  }, msUntilTarget);
+}
+
+function stopRetryFailedTimer() {
+  if (retryFailedTimer) {
+    clearTimeout(retryFailedTimer);
+    clearInterval(retryFailedTimer);
+    retryFailedTimer = null;
+  }
+}
+
+async function runRetryFailed() {
+  const failedAccounts = accountDb.listByStatus("failed");
+  const newAccounts = accountDb.listByStatus("new");
+  const retryList = [...failedAccounts, ...newAccounts];
+
+  if (retryList.length === 0) {
+    console.log("[retry-failed] No failed/new accounts to retry");
+    return;
+  }
+
+  const emails = retryList.map(a => a.email);
+  console.log(`[retry-failed] Retrying ${emails.length} accounts at ${new Date().toLocaleTimeString()}...`);
+  sendToRenderer("retryFailed:start", { count: emails.length });
+
+  try {
+    const DEFAULT_PASSWORD = "abcd@1234";
+    const results = await loginService.batchLogin(emails, DEFAULT_PASSWORD, false, (progress) => {
+      sendToRenderer("login:progress", progress);
+    });
+
+    let success = 0;
+    for (const r of results) {
+      if (r.success && r.token) {
+        const data = { email: r.email, token: r.token, account_status: "active", token_valid: 1 };
+        if (r.accessToken) data.access_token = r.accessToken;
+        if (r.refreshToken) data.refresh_token = r.refreshToken;
+        accountDb.upsert(data);
+        success++;
+      }
+    }
+
+    console.log(`[retry-failed] Done: ${success}/${emails.length} success`);
+    sendToRenderer("retryFailed:done", { total: emails.length, success });
+  } catch (err) {
+    console.error("[retry-failed] Error:", err.message);
+    sendToRenderer("retryFailed:done", { total: emails.length, success: 0, error: err.message });
+  }
+}
+
 async function runAutoCheck() {
   console.log("[auto-check] Starting scheduled check...");
   lastAutoCheckTime = new Date().toISOString();
@@ -110,8 +183,12 @@ async function runAutoCheck() {
     }
   }
 
-  // 用第一个有效 Token 拉取组织成员
-  await discoverOrgMembers(accounts);
+  // 根据设置决定是否拉取组织成员
+  if (orgDiscoveryEnabled) {
+    await discoverOrgMembers(accounts);
+  } else {
+    console.log("[auto-check] Org discovery disabled, skipping");
+  }
 
   sendToRenderer("autoCheck:finished", {
     time: new Date().toISOString(),
@@ -443,6 +520,31 @@ function registerIpcHandlers() {
 
   // -- Refresh all tokens (手动触发, 并发无延迟) --
   ipcMain.handle("accounts:refreshAll", () => runQuickRefresh());
+
+  // -- Refresh single account --
+  ipcMain.handle("accounts:refreshSingle", async (_, email) => {
+    const acc = accountDb.listAll().find(a => a.email === email);
+    if (!acc) return { success: false, error: "Account not found" };
+    try {
+      const update = await checkSingleAccount(acc);
+      accountDb.upsert(update);
+      return { success: true, update };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  });
+
+  // -- Schedule settings (org discovery + retry failed) --
+  ipcMain.handle("schedule:updateSettings", (_, settings) => {
+    if (settings.orgDiscoveryEnabled !== undefined) orgDiscoveryEnabled = settings.orgDiscoveryEnabled;
+    if (settings.retryFailedEnabled !== undefined) retryFailedEnabled = settings.retryFailedEnabled;
+    if (settings.retryFailedTime !== undefined) retryFailedTime = settings.retryFailedTime;
+    startRetryFailedTimer();
+    console.log(`[schedule] Updated: orgDiscovery=${orgDiscoveryEnabled}, retryFailed=${retryFailedEnabled} at ${retryFailedTime}`);
+    return { orgDiscoveryEnabled, retryFailedEnabled, retryFailedTime };
+  });
+
+  ipcMain.handle("schedule:retryNow", () => runRetryFailed());
 
   // -- 团队成员发现 (手动触发) --
   ipcMain.handle("accounts:discoverTeam", async () => {

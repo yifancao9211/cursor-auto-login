@@ -12,6 +12,9 @@ export const useAppStore = defineStore("app", {
       batchPassword: "abcd@1234",
       concurrency: 3,
       autoCheckMinutes: 30,
+      orgDiscoveryEnabled: true,
+      retryFailedEnabled: false,
+      retryFailedTime: "00:00",
     },
   }),
 
