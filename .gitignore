@@ -13,3 +13,4 @@ tokens.json.imported
 .DS_Store
 release
 dist-renderer
+node_modules*

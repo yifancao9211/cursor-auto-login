@@ -92,8 +92,12 @@ jobs:
           zip -ry "../${APP_NAME}-${VERSION}-arm64-mac.zip" "$(basename "$APP_PATH")"
           cd ../..
 
-          # Create DMG
-          hdiutil create -volname "${APP_NAME}" -srcfolder "$APP_PATH" -ov -format UDZO "release/${APP_NAME}-${VERSION}-arm64.dmg"
+          # Create DMG with Applications symlink (drag-to-install)
+          DMG_DIR=$(mktemp -d)
+          cp -R "$APP_PATH" "$DMG_DIR/"
+          ln -s /Applications "$DMG_DIR/Applications"
+          hdiutil create -volname "${APP_NAME}" -srcfolder "$DMG_DIR" -ov -format UDZO "release/${APP_NAME}-${VERSION}-arm64.dmg"
+          rm -rf "$DMG_DIR"
 
           # Generate latest-mac.yml for electron-updater
           ZIP_SIZE=$(stat -f%z "release/${APP_NAME}-${VERSION}-arm64-mac.zip")
