@@ -86,7 +86,7 @@ async function runAutoCheck() {
   lastAutoCheckTime = new Date().toISOString();
   sendToRenderer("autoCheck:started", { time: lastAutoCheckTime });
 
-  const accounts = accountDb.listAll();
+  const accounts = accountDb.listAll().filter(a => a.account_status !== "disabled");
   const results = [];
 
   for (let i = 0; i < accounts.length; i++) {
@@ -125,7 +125,7 @@ async function runAutoCheck() {
 /** 手动刷新：并发检查所有账号，无延迟 */
 async function runQuickRefresh() {
   console.log("[refresh] Starting quick refresh...");
-  const accounts = accountDb.listAll();
+  const accounts = accountDb.listAll().filter(a => a.account_status !== "disabled");
   const results = [];
   const BATCH_SIZE = 5;
 
@@ -151,6 +151,11 @@ async function runQuickRefresh() {
 
 async function checkSingleAccount(acc) {
   const update = { email: acc.email };
+
+  // 跳过已禁用的账号，保持状态不变
+  if (acc.account_status === "disabled") {
+    return update;
+  }
 
   if (!acc.token && !acc.access_token) {
     update.token_valid = 0;
@@ -192,7 +197,7 @@ async function checkSingleAccount(acc) {
     if (usage.authMethod) console.log(`[check] ${acc.email}: usage via ${usage.authMethod}`);
   } else {
     update.token_valid = 0;
-    update.account_status = acc.account_status === "new" ? "new" : "failed";
+    update.account_status = acc.account_status === "new" ? "new" : (acc.account_status === "disabled" ? "disabled" : "failed");
   }
 
   if (stripe.status === 200 && stripe.data) {
