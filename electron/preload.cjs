@@ -21,6 +21,10 @@ contextBridge.exposeInMainWorld("api", {
   refreshAllAccounts: () => ipcRenderer.invoke("accounts:refreshAll"),
   discoverTeam: () => ipcRenderer.invoke("accounts:discoverTeam"),
 
+  // Token Exchange
+  exchangeToken: (email) => ipcRenderer.invoke("accounts:exchangeToken", email),
+  exchangeAllTokens: () => ipcRenderer.invoke("accounts:exchangeAllTokens"),
+
   // Switcher
   switchAccount: (account, options) => ipcRenderer.invoke("switcher:switch", account, options),
   smartSwitch: () => ipcRenderer.invoke("switcher:smartSwitch"),
@@ -43,6 +47,8 @@ contextBridge.exposeInMainWorld("api", {
   setAutoCheckInterval: (minutes) => ipcRenderer.invoke("autoCheck:setInterval", minutes),
   getAutoCheckStatus: () => ipcRenderer.invoke("autoCheck:getStatus"),
   runAutoCheckNow: () => ipcRenderer.invoke("autoCheck:runNow"),
+  stopAutoCheck: () => ipcRenderer.invoke("autoCheck:stop"),
+  toggleAutoCheck: () => ipcRenderer.invoke("autoCheck:toggle"),
 
   // Events from main
   onLoginProgress: (callback) => {
@@ -69,5 +75,10 @@ contextBridge.exposeInMainWorld("api", {
     const handler = (_event, data) => callback(data);
     ipcRenderer.on("org:newMembers", handler);
     return () => ipcRenderer.removeListener("org:newMembers", handler);
+  },
+  onExchangeProgress: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on("exchange:progress", handler);
+    return () => ipcRenderer.removeListener("exchange:progress", handler);
   },
 });

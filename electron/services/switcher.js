@@ -113,8 +113,8 @@ export const switcher = {
 
     if (currentEmail) {
       const currentAcc = accountDb.listAll().find((a) => a.email === currentEmail);
-      if (currentAcc?.token) {
-        const usage = await cursorApi.fetchUsage(currentAcc.token);
+      if (currentAcc?.access_token || currentAcc?.token) {
+        const usage = await cursorApi.fetchUsageSmart(currentAcc);
         if (usage.status === 200 && usage.data) {
           const plan = usage.data.individualUsage?.plan;
           const od = usage.data.individualUsage?.onDemand;

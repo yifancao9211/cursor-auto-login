@@ -8,6 +8,7 @@ import { accountDb } from "./services/account-db.js";
 import { switcher } from "./services/switcher.js";
 import { loginService } from "./services/login.js";
 import { machineIdService } from "./services/machine-id.js";
+import { tokenExchange } from "./services/token-exchange.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
@@ -151,15 +152,31 @@ async function runQuickRefresh() {
 async function checkSingleAccount(acc) {
   const update = { email: acc.email };
 
-  if (!acc.token) {
+  if (!acc.token && !acc.access_token) {
     update.token_valid = 0;
     update.account_status = acc.account_status === "new" ? "new" : "failed";
     update.last_checked = new Date().toISOString();
     return update;
   }
 
-  const usage = await cursorApi.fetchUsage(acc.token);
-  const stripe = await cursorApi.fetchStripe(acc.token);
+  // 如果有 cookie 但没有 access_token，尝试自动转换
+  if (acc.token && !acc.access_token) {
+    console.log(`[check] ${acc.email}: 有 cookie 无 access_token，尝试自动转换...`);
+    const exchangeResult = await tokenExchange.exchangeCookieToTokens(acc.token);
+    if (exchangeResult.success) {
+      console.log(`[check] ${acc.email}: Cookie → accessToken 转换成功`);
+      acc.access_token = exchangeResult.accessToken;
+      acc.refresh_token = exchangeResult.refreshToken;
+      update.access_token = exchangeResult.accessToken;
+      update.refresh_token = exchangeResult.refreshToken;
+    } else {
+      console.log(`[check] ${acc.email}: Cookie → accessToken 转换失败: ${exchangeResult.error}`);
+    }
+  }
+
+  // 智能调用：优先 Bearer (accessToken → api2.cursor.sh)，fallback Cookie
+  const usage = await cursorApi.fetchUsageSmart(acc);
+  const stripe = await cursorApi.fetchStripeSmart(acc);
 
   if (usage.status === 200 && usage.data) {
     const od = usage.data.individualUsage?.onDemand;
@@ -172,15 +189,16 @@ async function checkSingleAccount(acc) {
     update.reset_date = usage.data.billingCycleEnd || null;
     update.token_valid = 1;
     update.account_status = "active";
+    if (usage.authMethod) console.log(`[check] ${acc.email}: usage via ${usage.authMethod}`);
   } else {
     update.token_valid = 0;
     update.account_status = acc.account_status === "new" ? "new" : "failed";
   }
 
   if (stripe.status === 200 && stripe.data) {
+    // full_stripe_profile (Bearer) 和 /api/auth/stripe (Cookie) 字段基本一致
     update.membership_type = stripe.data.membershipType || update.membership_type;
     update.days_remaining = stripe.data.daysRemainingOnTrial || 0;
-    // 提取 Cursor IDE 切号时需要的关键 ID
     if (stripe.data.paymentId) update.stripe_customer_id = stripe.data.paymentId;
     if (stripe.data.teamId) update.team_id = String(stripe.data.teamId);
   }
@@ -340,6 +358,42 @@ function registerIpcHandlers() {
     return loginService.loginAccount(email, password);
   });
 
+  // -- Token Exchange: Cookie → accessToken --
+  ipcMain.handle("accounts:exchangeToken", async (_, email) => {
+    const acc = accountDb.listAll().find((a) => a.email === email);
+    if (!acc?.token) return { success: false, error: "no_cookie" };
+    const result = await tokenExchange.exchangeCookieToTokens(acc.token);
+    if (result.success) {
+      accountDb.upsert({
+        email,
+        access_token: result.accessToken,
+        refresh_token: result.refreshToken,
+      });
+    }
+    return result;
+  });
+
+  // -- Batch Token Exchange: 批量 Cookie → accessToken --
+  ipcMain.handle("accounts:exchangeAllTokens", async () => {
+    const accounts = accountDb.listAll().filter((a) => a.token && !a.access_token);
+    const results = [];
+    for (const acc of accounts) {
+      sendToRenderer("exchange:progress", { email: acc.email, current: results.length + 1, total: accounts.length });
+      const result = await tokenExchange.exchangeCookieToTokens(acc.token);
+      if (result.success) {
+        accountDb.upsert({
+          email: acc.email,
+          access_token: result.accessToken,
+          refresh_token: result.refreshToken,
+        });
+      }
+      results.push({ email: acc.email, ...result });
+      // 每个之间延迟 1 秒避免频繁请求
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    return results;
+  });
+
   // -- Refresh all tokens (手动触发, 并发无延迟) --
   ipcMain.handle("accounts:refreshAll", () => runQuickRefresh());
 
@@ -364,6 +418,20 @@ function registerIpcHandlers() {
   }));
 
   ipcMain.handle("autoCheck:runNow", () => runAutoCheck());
+
+  ipcMain.handle("autoCheck:stop", () => {
+    stopAutoCheck();
+    return { running: false };
+  });
+
+  ipcMain.handle("autoCheck:toggle", () => {
+    if (autoCheckTimer) {
+      stopAutoCheck();
+    } else {
+      startAutoCheck();
+    }
+    return { running: !!autoCheckTimer, intervalMinutes: autoCheckIntervalMs / 60000 };
+  });
 
   // -- File dialogs --
   ipcMain.handle("dialog:openFile", async (_, options) => {
