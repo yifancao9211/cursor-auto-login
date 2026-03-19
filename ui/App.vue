@@ -43,7 +43,7 @@ const tabs = [
 <template>
   <div class="flex h-screen w-full bg-apple-bg overflow-hidden text-apple-text">
     <!-- macOS/Windows Window Drag Strip — z-10 to stay below interactive content -->
-    <div class="drag-region absolute top-0 left-64 right-0 h-7 z-10"></div>
+    <div class="drag-region absolute top-0 left-0 right-0 h-7 z-50"></div>
 
     <!-- Sidebar -->
     <aside class="w-64 flex flex-col pt-12 pb-4 px-3 bg-apple-sidebar/80 backdrop-blur-3xl border-r border-apple-border/50 shadow-sm relative z-40">

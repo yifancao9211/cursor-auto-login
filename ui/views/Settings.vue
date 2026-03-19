@@ -1,7 +1,7 @@
 <script setup>
 import { ref, watch, onMounted, onUnmounted, computed } from "vue";
 import { useAppStore } from "../stores/app.js";
-import { KeyRound, Layers, HardDrive, Cpu, ShieldCheck, Activity, Timer, PlayCircle, Download, RefreshCw, CheckCircle2, AlertCircle, Users, RotateCcw, Clock } from "lucide-vue-next";
+import { KeyRound, Layers, HardDrive, Cpu, ShieldCheck, Activity, Timer, PlayCircle, Download, RefreshCw, CheckCircle2, AlertCircle, Users, RotateCcw, Clock, Fingerprint, Eye, EyeOff } from "lucide-vue-next";
 
 const store = useAppStore();
 
@@ -20,6 +20,23 @@ const appVersion = ref("...");
 const updateStatus = ref(null); // null | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error'
 const updateInfo = ref({});
 let cleanupUpdateListener = null;
+const machineIds = ref(null);
+const showFullIds = ref(false);
+
+async function loadMachineIds() {
+  try {
+    machineIds.value = await window.api.readCurrentMachineId();
+  } catch (e) {
+    console.warn('[Settings] Failed to read machine IDs:', e.message);
+    machineIds.value = null;
+  }
+}
+
+function formatId(id) {
+  if (!id) return '—';
+  if (showFullIds.value) return id;
+  return id.substring(0, 8) + '···';
+}
 
 onMounted(async () => {
   store.loadSettings();
@@ -33,8 +50,9 @@ onMounted(async () => {
     retryFailedTime: store.settings.retryFailedTime || "00:00",
     enableLogging: store.settings.enableLogging || false,
   };
-  // 获取版本号
+  // 获取版本号和机器码
   appVersion.value = await window.api.getAppVersion();
+  await loadMachineIds();
   // 监听更新状态
   cleanupUpdateListener = window.api.onUpdateStatus((data) => {
     updateStatus.value = data.status;
@@ -317,6 +335,43 @@ const updateLabel = computed(() => {
           <div class="bg-black/5 rounded-lg border border-apple-border/50 p-3 font-mono text-[11px] text-apple-textMuted flex items-center gap-2 cursor-text select-text overflow-hidden">
             <HardDrive class="w-4 h-4 flex-shrink-0 opacity-50" />
             <span class="break-all">~/Library/Application Support/Cursor/User/globalStorage/state.vscdb</span>
+          </div>
+        </div>
+
+        <div class="h-px w-full bg-apple-border/50"></div>
+
+        <!-- Machine ID -->
+        <div class="flex flex-col gap-3">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <Fingerprint class="w-4 h-4 text-purple-500" />
+              <span class="font-bold text-sm text-apple-text">当前机器码</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <button @click="showFullIds = !showFullIds" class="text-xs text-apple-textMuted hover:text-apple-text transition-colors flex items-center gap-1" title="显示/隐藏完整ID">
+                <component :is="showFullIds ? EyeOff : Eye" class="w-3.5 h-3.5" />
+              </button>
+              <button @click="loadMachineIds" class="text-xs font-bold text-apple-accent hover:text-blue-600 transition-colors flex items-center gap-1" title="重新读取">
+                <RefreshCw class="w-3.5 h-3.5" /> 刷新
+              </button>
+            </div>
+          </div>
+          <div v-if="machineIds" class="bg-black/5 rounded-lg border border-apple-border/50 p-3 font-mono text-[11px] text-apple-textMuted flex flex-col gap-1.5 select-text">
+            <div class="flex items-center gap-2">
+              <span class="text-apple-textMuted w-24 flex-shrink-0">machineId</span>
+              <span class="text-apple-text break-all">{{ formatId(machineIds.machineId) }}</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="text-apple-textMuted w-24 flex-shrink-0">macMachineId</span>
+              <span class="text-apple-text break-all">{{ formatId(machineIds.macMachineId) }}</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="text-apple-textMuted w-24 flex-shrink-0">devDeviceId</span>
+              <span class="text-apple-text break-all">{{ formatId(machineIds.devDeviceId) }}</span>
+            </div>
+          </div>
+          <div v-else class="bg-black/5 rounded-lg border border-apple-border/50 p-3 text-xs text-apple-textMuted text-center">
+            无法读取机器码
           </div>
         </div>
       </div>
