@@ -8,7 +8,7 @@ const retryingAll = ref(false);
 const retryingSet = ref(new Set());
 
 const failedAccounts = computed(() =>
-  store.accounts.filter(a => !a.token_valid)
+  store.accounts.filter(a => a.account_status === "failed" || (!a.token_valid && a.account_status !== "active" && a.account_status !== "new" && a.account_status !== "disabled"))
 );
 
 async function retrySingle(email) {
