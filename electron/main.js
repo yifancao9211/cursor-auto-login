@@ -280,6 +280,39 @@ function registerIpcHandlers() {
   ipcMain.handle("accounts:importTokensJson", (_, data) => accountDb.importFromTokensJson(data));
   ipcMain.handle("accounts:exportTokensJson", () => accountDb.exportToTokensJson());
 
+  // -- Full Export (save dialog → JSON file with all fields) --
+  ipcMain.handle("accounts:exportFull", async () => {
+    const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+      title: "导出账号数据",
+      defaultPath: `cursor-accounts-${new Date().toISOString().slice(0, 10)}.json`,
+      filters: [{ name: "JSON", extensions: ["json"] }],
+    });
+    if (canceled || !filePath) return { success: false };
+    const accounts = accountDb.listAll();
+    fs.writeFileSync(filePath, JSON.stringify(accounts, null, 2), "utf-8");
+    return { success: true, count: accounts.length, filePath };
+  });
+
+  // -- Full Import (open dialog → load JSON file, upsert all) --
+  ipcMain.handle("accounts:importFull", async () => {
+    const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+      title: "导入账号数据",
+      filters: [{ name: "JSON", extensions: ["json"] }],
+      properties: ["openFile"],
+    });
+    if (canceled || !filePaths.length) return { success: false };
+    const raw = fs.readFileSync(filePaths[0], "utf-8");
+    const accounts = JSON.parse(raw);
+    if (!Array.isArray(accounts)) throw new Error("文件格式错误：需要 JSON 数组");
+    let imported = 0;
+    for (const acc of accounts) {
+      if (!acc.email) continue;
+      accountDb.upsert(acc);
+      imported++;
+    }
+    return { success: true, count: imported };
+  });
+
   // -- Switcher --
   ipcMain.handle("switcher:switch", (_, account, options) =>
     switcher.switchAccount(account, { ...options, accountDb })

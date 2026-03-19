@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from "vue";
 import { useAppStore } from "../stores/app.js";
 import SwitchDialog from "../components/SwitchDialog.vue";
-import { Download, RefreshCw, Search, Trash2, Copy, CheckCircle2, AlertCircle, ArrowRightCircle, Check, X, Fingerprint, Building2, LayoutGrid, LayoutList, ArrowDownUp, Key } from "lucide-vue-next";
+import { Download, RefreshCw, Search, Trash2, Copy, CheckCircle2, AlertCircle, ArrowRightCircle, Check, X, Fingerprint, Building2, LayoutGrid, LayoutList, ArrowDownUp, Key, Upload } from "lucide-vue-next";
 
 const store = useAppStore();
 const multipleSelection = ref(new Set());
@@ -149,11 +149,21 @@ async function copyText(text, key) {
 
 async function handleExport() {
   try {
-    const data = await window.api.exportTokensJson();
-    const json = JSON.stringify(data, null, 2);
-    await navigator.clipboard.writeText(json);
-    alert("已复制到剪贴板！");
+    const result = await window.api.exportFull();
+    if (result.success) alert(`已导出 ${result.count} 个账号到文件`);
   } catch { /* ignore */ }
+}
+
+async function handleImportFile() {
+  try {
+    const result = await window.api.importFull();
+    if (result.success) {
+      alert(`已导入 ${result.count} 个账号`);
+      await store.loadAccounts();
+    }
+  } catch (e) {
+    alert("导入失败：" + e.message);
+  }
 }
 
 function usageBarColorClasses(pct) {
@@ -180,6 +190,9 @@ onMounted(async () => {
       <div class="flex flex-wrap gap-2">
         <button class="apple-btn-secondary" @click="handleExport">
           <Download class="w-4 h-4 mr-1.5 text-apple-textMuted" /> 导出
+        </button>
+        <button class="apple-btn-secondary" @click="handleImportFile">
+          <Upload class="w-4 h-4 mr-1.5 text-apple-textMuted" /> 导入
         </button>
         <button class="apple-btn-secondary" :disabled="store.refreshing" @click="handleRefreshAll">
           <RefreshCw :class="['w-4 h-4 mr-1.5 text-apple-textMuted', { 'animate-spin': store.refreshing }]" /> 刷新

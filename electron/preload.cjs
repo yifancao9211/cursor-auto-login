@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld("api", {
   removeAccounts: (emails) => ipcRenderer.invoke("accounts:remove", emails),
   importTokensJson: (data) => ipcRenderer.invoke("accounts:importTokensJson", data),
   exportTokensJson: () => ipcRenderer.invoke("accounts:exportTokensJson"),
+  exportFull: () => ipcRenderer.invoke("accounts:exportFull"),
+  importFull: () => ipcRenderer.invoke("accounts:importFull"),
   refreshAllAccounts: () => ipcRenderer.invoke("accounts:refreshAll"),
   discoverTeam: () => ipcRenderer.invoke("accounts:discoverTeam"),
 
