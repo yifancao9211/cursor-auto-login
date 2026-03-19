@@ -22,6 +22,11 @@ function init(sendToRenderer) {
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
 
+  // macOS: 跳过代码签名验证（ad-hoc 签名无法通过 Gatekeeper 的更新验证）
+  if (process.platform === "darwin") {
+    autoUpdater.verifyUpdateCodeSignature = false;
+  }
+
   // 日志
   autoUpdater.logger = {
     info: (...args) => console.log("[updater]", ...args),
