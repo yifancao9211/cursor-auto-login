@@ -213,7 +213,19 @@ async function updateTeamSpendFromAdmin(adminAcc) {
 
   // 先用管理员调 usage-summary 拿 plan.limit（团队共享的套餐上限）
   let planLimitFromAdmin = null;
-  const usageResp = await cursorApi.fetchUsageSmart(adminAcc);
+  let usageResp = await cursorApi.fetchUsageSmart(adminAcc);
+
+  // 管理员 token 401 时，先刷新再重试
+  if ((usageResp.status === 401 || usageResp.status === 403) && adminAcc.refresh_token) {
+    console.log(`[team-spend] Admin ${adminAcc.email}: API 返回 ${usageResp.status}，刷新 token 后重试...`);
+    const adminUpdate = { email: adminAcc.email };
+    const refreshed = await tryRefreshTokenAndCookie(adminAcc, adminUpdate);
+    if (refreshed) {
+      accountDb.upsert(adminUpdate);
+      usageResp = await cursorApi.fetchUsageSmart(adminAcc);
+    }
+  }
+
   if (usageResp.status === 200 && usageResp.data) {
     const plan = usageResp.data.individualUsage?.plan;
     if (plan && plan.limit != null) {
@@ -226,7 +238,19 @@ async function updateTeamSpendFromAdmin(adminAcc) {
   let totalPages = 1;
 
   while (page <= totalPages) {
-    const resp = await cursorApi.fetchTeamSpend(token, teamId, page, 50);
+    let resp = await cursorApi.fetchTeamSpend(adminAcc.token, teamId, page, 50);
+
+    // team-spend 401 时刷新管理员 token 后重试
+    if ((resp.status === 401 || resp.status === 403) && adminAcc.refresh_token) {
+      console.log(`[team-spend] fetchTeamSpend 401, refreshing admin token...`);
+      const adminUpdate = { email: adminAcc.email };
+      const refreshed = await tryRefreshTokenAndCookie(adminAcc, adminUpdate);
+      if (refreshed) {
+        accountDb.upsert(adminUpdate);
+        resp = await cursorApi.fetchTeamSpend(adminAcc.token, teamId, page, 50);
+      }
+    }
+
     if (resp.status !== 200 || !resp.data) {
       console.log(`[team-spend] fetchTeamSpend page ${page}: ${resp.status} ${resp.raw || ""}`);
       break;
@@ -325,17 +349,14 @@ async function runRetryFailed() {
     sendToRenderer("retryFailed:refreshStart", { count: allAccounts.length });
     let refreshed = 0;
     for (const acc of allAccounts) {
-      const refreshResult = await tokenExchange.refreshAccessToken(acc.refresh_token);
-      if (refreshResult.success) {
-        const update = { email: acc.email, access_token: refreshResult.accessToken };
-        if (refreshResult.refreshToken && refreshResult.refreshToken !== acc.refresh_token) {
-          update.refresh_token = refreshResult.refreshToken;
-        }
+      const update = { email: acc.email };
+      const success = await tryRefreshTokenAndCookie(acc, update);
+      if (success) {
         accountDb.upsert(update);
         refreshed++;
-        console.log(`[retry-failed] ${acc.email}: access_token 刷新成功`);
+        console.log(`[retry-failed] ${acc.email}: access_token + cookie 刷新成功`);
       } else {
-        console.log(`[retry-failed] ${acc.email}: access_token 刷新失败(${refreshResult.error})`);
+        console.log(`[retry-failed] ${acc.email}: access_token 刷新失败`);
       }
       // 每个之间延迟 500ms 避免频繁请求
       await new Promise(r => setTimeout(r, 500));
@@ -502,6 +523,47 @@ async function runQuickRefresh() {
   return results;
 }
 
+/**
+ * 通用辅助：尝试刷新 acc 的 access_token + cookie
+ * 会修改 acc 和 update 对象，返回是否刷新成功
+ */
+async function tryRefreshTokenAndCookie(acc, update) {
+  if (!acc.refresh_token) return false;
+
+  // 从现有 cookie 提取 userId
+  let userId = null;
+  if (acc.token) {
+    try {
+      const decoded = decodeURIComponent(acc.token);
+      const idx = decoded.indexOf("::");
+      if (idx > 0) userId = decoded.substring(0, idx);
+    } catch {}
+  }
+
+  const refreshResult = await tokenExchange.refreshAccessToken(acc.refresh_token, userId);
+  if (!refreshResult.success) {
+    console.log(`[check] ${acc.email}: token 刷新失败(${refreshResult.error})`);
+    return false;
+  }
+
+  console.log(`[check] ${acc.email}: access_token 刷新成功`);
+  acc.access_token = refreshResult.accessToken;
+  update.access_token = refreshResult.accessToken;
+
+  if (refreshResult.refreshToken && refreshResult.refreshToken !== acc.refresh_token) {
+    acc.refresh_token = refreshResult.refreshToken;
+    update.refresh_token = refreshResult.refreshToken;
+  }
+
+  if (refreshResult.newCookie) {
+    acc.token = refreshResult.newCookie;
+    update.token = refreshResult.newCookie;
+    console.log(`[check] ${acc.email}: cookie 已同步续期`);
+  }
+
+  return true;
+}
+
 async function checkSingleAccount(acc) {
   const update = { email: acc.email };
 
@@ -532,35 +594,23 @@ async function checkSingleAccount(acc) {
     }
   }
 
-  // 检查 access_token 是否过期或即将过期（7天内），如有 refresh_token 则主动刷新
-  if (acc.access_token && acc.refresh_token) {
-    try {
-      const payload = JSON.parse(Buffer.from(acc.access_token.split('.')[1], 'base64').toString());
-      const expiresIn = (payload.exp * 1000) - Date.now();
-      const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
-      if (expiresIn < SEVEN_DAYS) {
-        console.log(`[check] ${acc.email}: access_token ${expiresIn <= 0 ? '已过期' : `${Math.round(expiresIn / 86400000)}天后过期`}，主动刷新...`);
-        const refreshResult = await tokenExchange.refreshAccessToken(acc.refresh_token);
-        if (refreshResult.success) {
-          console.log(`[check] ${acc.email}: access_token 刷新成功`);
-          acc.access_token = refreshResult.accessToken;
-          update.access_token = refreshResult.accessToken;
-          if (refreshResult.refreshToken && refreshResult.refreshToken !== acc.refresh_token) {
-            acc.refresh_token = refreshResult.refreshToken;
-            update.refresh_token = refreshResult.refreshToken;
-          }
-        } else {
-          console.log(`[check] ${acc.email}: access_token 刷新失败(${refreshResult.error})`);
-        }
+  // 先调 API 查用量和订阅
+  let usage = await cursorApi.fetchUsageSmart(acc);
+  let stripe = await cursorApi.fetchStripeSmart(acc);
+
+  // 如果 401/403，尝试刷新 token + cookie 后重试
+  if ((usage.status === 401 || usage.status === 403) && acc.refresh_token) {
+    console.log(`[check] ${acc.email}: API 返回 ${usage.status}，尝试刷新 token 后重试...`);
+    const refreshed = await tryRefreshTokenAndCookie(acc, update);
+    if (refreshed) {
+      // 用新 token 重试 API
+      usage = await cursorApi.fetchUsageSmart(acc);
+      stripe = await cursorApi.fetchStripeSmart(acc);
+      if (usage.status === 200) {
+        console.log(`[check] ${acc.email}: 刷新后重试成功`);
       }
-    } catch {
-      // JWT 解析失败，跳过过期检查
     }
   }
-
-  // 智能调用：优先 Bearer (accessToken → api2.cursor.sh)，fallback Cookie
-  const usage = await cursorApi.fetchUsageSmart(acc);
-  const stripe = await cursorApi.fetchStripeSmart(acc);
 
   if (usage.status === 200 && usage.data) {
     const od = usage.data.individualUsage?.onDemand;
@@ -575,7 +625,7 @@ async function checkSingleAccount(acc) {
     update.account_status = "active";
     if (usage.authMethod) console.log(`[check] ${acc.email}: usage via ${usage.authMethod}`);
   } else if (usage.status === 401 || usage.status === 403) {
-    // Token 确实无效（认证失败），标记为 failed
+    // 刷新后仍然 401，才真正标记为 failed
     console.log(`[check] ${acc.email}: 认证失败 (${usage.status})，标记为失效`);
     update.token_valid = 0;
     update.account_status = acc.account_status === "new" ? "new" : (acc.account_status === "disabled" ? "disabled" : "failed");

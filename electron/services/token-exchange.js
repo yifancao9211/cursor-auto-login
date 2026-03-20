@@ -156,42 +156,89 @@ export const tokenExchange = {
   },
 
   /**
-   * 用 refreshToken 刷新获取新的 accessToken
+   * 用 refreshToken 刷新获取新的 accessToken，同时生成新的 cookie
+   *
+   * 使用 Cursor 的认证后端 prod.authentication.cursor.sh/oauth/token
+   * 通过 OAuth2 refresh_token grant 获取新的 access_token（60天有效期）
+   * refresh_token 可重复使用，实现无限续期
+   *
+   * 新的 access_token (type=session) 可以用 userId::accessToken 格式作为
+   * WorkosCursorSessionToken cookie 使用（已验证 cursor.com API 接受此格式）
    *
    * @param {string} refreshToken - refresh_token 值
-   * @returns {Promise<{success: boolean, accessToken?: string, refreshToken?: string, error?: string}>}
+   * @param {string} [userId] - 用户 ID（如 user_01KJVR1MJE46Q08N3RF6H67MY0），
+   *                            用于构造新 cookie。如未提供则从现有 cookie 或 token 中提取
+   * @returns {Promise<{success: boolean, accessToken?: string, refreshToken?: string, newCookie?: string, error?: string}>}
    */
-  async refreshAccessToken(refreshToken) {
+  async refreshAccessToken(refreshToken, userId) {
     if (!refreshToken) return { success: false, error: "no_refresh_token" };
+
+    const CLIENT_ID = "client_01GS6W3C96KW4WRS6Z93JCE2RJ";
 
     try {
       const resp = await httpRequest(
-        "https://api2.cursor.sh/auth/refresh",
+        "https://prod.authentication.cursor.sh/oauth/token",
         {
           "user-agent": "Cursor/0.50.0",
           "content-type": "application/json",
         },
         "POST",
-        { refreshToken }
+        {
+          client_id: CLIENT_ID,
+          grant_type: "refresh_token",
+          refresh_token: refreshToken,
+        }
       );
 
       if (resp.status === 200) {
         try {
           const data = JSON.parse(resp.raw);
-          if (data.accessToken) {
-            console.log("[token-refresh] Successfully refreshed accessToken");
+          if (data.access_token && !data.shouldLogout) {
+            console.log("[token-refresh] Successfully refreshed accessToken via prod.authentication.cursor.sh");
+
+            // 尝试从 token 中提取 userId（如果没有传入）
+            let resolvedUserId = userId;
+            if (!resolvedUserId) {
+              try {
+                const segs = data.access_token.split(".");
+                let b64 = segs[1].replace(/-/g, "+").replace(/_/g, "/");
+                while (b64.length % 4) b64 += "=";
+                const payload = JSON.parse(Buffer.from(b64, "base64").toString());
+                // sub 格式: "auth0|user_01KJVR1MJE46Q08N3RF6H67MY0"
+                if (payload.sub) {
+                  resolvedUserId = payload.sub.split("|").pop();
+                }
+              } catch {
+                // ignore parse errors
+              }
+            }
+
+            // 构造新 cookie: userId::accessToken (URL encoded)
+            let newCookie = null;
+            if (resolvedUserId) {
+              newCookie = encodeURIComponent(`${resolvedUserId}::${data.access_token}`);
+              console.log("[token-refresh] Generated new cookie from refreshed accessToken");
+            }
+
             return {
               success: true,
-              accessToken: data.accessToken,
-              refreshToken: data.refreshToken || refreshToken, // 有些接口会返回新的 refreshToken
+              accessToken: data.access_token,
+              // refresh_token 不变（服务端不返回新的），保留原值继续使用
+              refreshToken: data.refresh_token || refreshToken,
+              newCookie,
             };
+          }
+
+          if (data.shouldLogout) {
+            console.log("[token-refresh] Server returned shouldLogout=true, token may be revoked");
+            return { success: false, error: "shouldLogout" };
           }
         } catch {
           // parse error
         }
       }
 
-      console.log(`[token-refresh] Refresh failed: status=${resp.status}`);
+      console.log(`[token-refresh] Refresh failed: status=${resp.status}, body=${resp.raw?.substring(0, 200)}`);
       return { success: false, error: `refresh returned ${resp.status}` };
     } catch (e) {
       return { success: false, error: e.message };
