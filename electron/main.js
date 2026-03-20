@@ -746,12 +746,10 @@ async function discoverOrgMembers(accounts) {
     console.log("[org-discovery] No new members found");
   }
 
-  // 只对本次新发现的账号尝试 auto-login，已有账号由 retry-failed 定时处理
-  const needLogin = discovered > 0
-    ? accountDb.listAll().filter(a =>
-        a.account_status === "new" && !a.token && !a.access_token && newlyDiscovered.has(a.email)
-      )
-    : [];
+  // 对所有 new 且没有 token 的账号尝试自动登录（失败会标记为 failed，下次不再重试）
+  const needLogin = accountDb.listAll().filter(a =>
+    a.account_status === "new" && !a.token && !a.access_token
+  );
 
   if (needLogin.length > 0) {
     const loginEmails = needLogin.map(a => a.email);
