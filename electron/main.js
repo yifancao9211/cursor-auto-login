@@ -219,7 +219,7 @@ async function updateTeamSpendFromAdmin(adminAcc) {
   let usageResp = await cursorApi.fetchUsageSmart(adminAcc);
 
   // 管理员 token 401 时，先刷新再重试
-  if ((usageResp.status === 401 || usageResp.status === 403) && adminAcc.refresh_token) {
+  if ((usageResp.status === 401 || usageResp.status === 403 || usageResp.status === 307) && adminAcc.refresh_token) {
     console.log(`[team-spend] Admin ${adminAcc.email}: API 返回 ${usageResp.status}，刷新 token 后重试...`);
     const adminUpdate = { email: adminAcc.email };
     const refreshed = await tryRefreshTokenAndCookie(adminAcc, adminUpdate);
@@ -244,7 +244,7 @@ async function updateTeamSpendFromAdmin(adminAcc) {
     let resp = await cursorApi.fetchTeamSpend(adminAcc.token, teamId, page, 50);
 
     // team-spend 401 时刷新管理员 token 后重试
-    if ((resp.status === 401 || resp.status === 403) && adminAcc.refresh_token) {
+    if ((resp.status === 401 || resp.status === 403 || resp.status === 307) && adminAcc.refresh_token) {
       console.log(`[team-spend] fetchTeamSpend 401, refreshing admin token...`);
       const adminUpdate = { email: adminAcc.email };
       const refreshed = await tryRefreshTokenAndCookie(adminAcc, adminUpdate);
@@ -614,7 +614,7 @@ async function checkSingleAccount(acc) {
   let stripe = await cursorApi.fetchStripeSmart(acc);
 
   // 如果 401/403，尝试刷新 token + cookie 后重试
-  if ((usage.status === 401 || usage.status === 403) && acc.refresh_token) {
+  if ((usage.status === 401 || usage.status === 403 || usage.status === 307) && acc.refresh_token) {
     console.log(`[check] ${acc.email}: API 返回 ${usage.status}，尝试刷新 token 后重试...`);
     const refreshed = await tryRefreshTokenAndCookie(acc, update);
     if (refreshed) {
@@ -639,7 +639,7 @@ async function checkSingleAccount(acc) {
     update.token_valid = 1;
     update.account_status = "active";
     if (usage.authMethod) console.log(`[check] ${acc.email}: usage via ${usage.authMethod}`);
-  } else if (usage.status === 401 || usage.status === 403) {
+  } else if (usage.status === 401 || usage.status === 403 || usage.status === 307) {
     // 刷新后仍然 401，才真正标记为 failed
     console.log(`[check] ${acc.email}: 认证失败 (${usage.status})，标记为失效`);
     update.token_valid = 0;
