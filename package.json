@@ -1,6 +1,6 @@
 {
   "name": "cursor-account-manager",
-  "version": "2.5.0",
+  "version": "3.0.0",
   "private": true,
   "type": "module",
   "description": "Cursor Account Manager - 一键切号、配额查询、批量登录",
@@ -55,7 +55,10 @@
       "repo": "cursor-auto-login"
     },
     "mac": {
-      "target": ["dmg", "zip"],
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "icon": "build/icon.icns"
     }
   },
