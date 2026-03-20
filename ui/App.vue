@@ -25,6 +25,7 @@ onMounted(async () => {
       retryFailedEnabled: store.settings.retryFailedEnabled || false,
       retryFailedTime: store.settings.retryFailedTime || "00:00",
       enableLogging: store.settings.enableLogging || false,
+      autoCheckMinutes: store.settings.autoCheckMinutes || 30,
     });
   } catch (e) {
     console.warn("[App] Failed to sync schedule settings:", e.message);

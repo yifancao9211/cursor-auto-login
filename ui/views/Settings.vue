@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch, onMounted, onUnmounted, computed } from "vue";
+import { ref, watch, onMounted, onUnmounted, computed, nextTick } from "vue";
 import { useAppStore } from "../stores/app.js";
 import { KeyRound, Layers, HardDrive, Cpu, ShieldCheck, Activity, Timer, PlayCircle, Download, RefreshCw, CheckCircle2, AlertCircle, Users, RotateCcw, Clock, Fingerprint, Eye, EyeOff } from "lucide-vue-next";
 
@@ -14,6 +14,8 @@ const form = ref({
   retryFailedTime: "00:00",
   enableLogging: false,
 });
+
+const ready = ref(false);
 
 const runningAutoCheck = ref(false);
 const appVersion = ref("...");
@@ -58,6 +60,9 @@ onMounted(async () => {
     updateStatus.value = data.status;
     updateInfo.value = data;
   });
+  // 等 nextTick 后再允许 watch 同步到 main，避免初始赋值触发多余调用
+  await nextTick();
+  ready.value = true;
 });
 
 onUnmounted(() => {
@@ -66,6 +71,7 @@ onUnmounted(() => {
 
 // 即时持久化 toggle 开关和时间设置（无需手动点保存）
 async function syncScheduleToMain() {
+  if (!ready.value) return;
   Object.assign(store.settings, {
     orgDiscoveryEnabled: form.value.orgDiscoveryEnabled,
     retryFailedEnabled: form.value.retryFailedEnabled,

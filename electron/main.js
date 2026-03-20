@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, shell } from "electron";
+import { app, BrowserWindow, ipcMain, dialog, shell, powerSaveBlocker } from "electron";
 import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -18,6 +18,7 @@ const isDev = !app.isPackaged;
 let mainWindow;
 let autoCheckTimer = null;
 let autoCheckIntervalMs = 30 * 60 * 1000; // 默认 30 分钟
+let autoCheckRunning = false;
 let lastAutoCheckTime = null;
 let orgDiscoveryEnabled = true;
 let retryFailedEnabled = false;
@@ -35,6 +36,7 @@ function createWindow() {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
+      backgroundThrottling: false,
     },
   };
 
@@ -60,13 +62,14 @@ app.whenReady().then(() => {
   accountDb.init();
   registerIpcHandlers();
   createWindow();
+  // 防止 macOS App Nap 节流后台定时器
+  powerSaveBlocker.start("prevent-app-suspension");
   // 初始化 logger（传入 sendToRenderer 用于流式推送日志到前端）
   logger.init(sendToRenderer);
   // 初始化自动更新
   updater.init(sendToRenderer);
-  // 启动后延迟 10 秒自动巡检一次
+  // 启动后延迟 10 秒自动巡检一次（定时器由 App.vue 同步设置后创建）
   setTimeout(() => runAutoCheck(), 10000);
-  startAutoCheck();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -395,6 +398,9 @@ async function runRetryFailed() {
         // 登录成功后检测管理员角色
         detectAdminRole({ email: r.email, token: r.token }).catch(() => {});
         success++;
+      } else {
+        // 登录失败，标记为 failed
+        accountDb.upsert({ email: r.email, account_status: "failed", token_valid: 0 });
       }
     }
 
@@ -407,6 +413,12 @@ async function runRetryFailed() {
 }
 
 async function runAutoCheck() {
+  if (autoCheckRunning) {
+    console.log("[auto-check] Already running, skip this round");
+    return;
+  }
+  autoCheckRunning = true;
+  try {
   console.log("[auto-check] Starting scheduled check...");
   lastAutoCheckTime = new Date().toISOString();
   sendToRenderer("autoCheck:started", { time: lastAutoCheckTime });
@@ -479,6 +491,9 @@ async function runAutoCheck() {
 
   console.log(`[auto-check] Done. Admin covered: ${teamSpendCovered.size}, individual: ${results.filter(r => r.success).length} ok, ${results.filter(r => !r.success).length} failed`);
   return results;
+  } finally {
+    autoCheckRunning = false;
+  }
 }
 
 /** 手动刷新：管理员优先批量更新 + 未覆盖账号并发检查 */
@@ -688,6 +703,7 @@ async function discoverOrgMembers(accounts) {
   let page = 1;
   let totalPages = 1;
   let discovered = 0;
+  const newlyDiscovered = new Set();
 
   while (page <= totalPages) {
     const resp = await cursorApi.fetchTeamSpend(token, teamId, page, 50);
@@ -715,6 +731,7 @@ async function discoverOrgMembers(accounts) {
           token_valid: 0,
         });
         discovered++;
+        newlyDiscovered.add(email);
       } else {
         accountDb.upsert({ email, org_name: teamName, org_id: String(teamId) });
       }
@@ -729,11 +746,12 @@ async function discoverOrgMembers(accounts) {
     console.log("[org-discovery] No new members found");
   }
 
-  // 对所有 new 且没有有效 token 的账号尝试自动登录
-  const needLogin = accountDb.listAll().filter(a =>
-    a.account_status === "new" &&
-    !a.token && !a.access_token
-  );
+  // 只对本次新发现的账号尝试 auto-login，已有账号由 retry-failed 定时处理
+  const needLogin = discovered > 0
+    ? accountDb.listAll().filter(a =>
+        a.account_status === "new" && !a.token && !a.access_token && newlyDiscovered.has(a.email)
+      )
+    : [];
 
   if (needLogin.length > 0) {
     const loginEmails = needLogin.map(a => a.email);
@@ -754,6 +772,9 @@ async function discoverOrgMembers(accounts) {
           // 登录成功后检测管理员角色
           detectAdminRole({ email: r.email, token: r.token }).catch(() => {});
           loginSuccess++;
+        } else {
+          // 登录失败，标记为 failed
+          accountDb.upsert({ email: r.email, account_status: "failed", token_valid: 0 });
         }
       }
       console.log(`[org-discovery] Auto-login done: ${loginSuccess}/${loginEmails.length} success`);
@@ -894,16 +915,20 @@ function registerIpcHandlers() {
     }
   });
 
-  // -- Schedule settings (org discovery + retry failed + logging) --
+  // -- Schedule settings (org discovery + retry failed + logging + auto-check interval) --
   ipcMain.handle("schedule:updateSettings", (_, settings) => {
     if (settings.orgDiscoveryEnabled !== undefined) orgDiscoveryEnabled = settings.orgDiscoveryEnabled;
     if (settings.retryFailedEnabled !== undefined) retryFailedEnabled = settings.retryFailedEnabled;
     if (settings.retryFailedTime !== undefined) retryFailedTime = settings.retryFailedTime;
     if (settings.enableLogging !== undefined) logger.setEnabled(settings.enableLogging);
+    if (settings.autoCheckMinutes !== undefined) {
+      autoCheckIntervalMs = Math.max(5, settings.autoCheckMinutes) * 60 * 1000;
+      startAutoCheck();
+    }
     
     startRetryFailedTimer();
-    console.log(`[schedule] Updated: orgDiscovery=${orgDiscoveryEnabled}, retryFailed=${retryFailedEnabled} at ${retryFailedTime}, enableLogging=${settings.enableLogging}`);
-    return { orgDiscoveryEnabled, retryFailedEnabled, retryFailedTime, enableLogging: settings.enableLogging };
+    console.log(`[schedule] Updated: orgDiscovery=${orgDiscoveryEnabled}, retryFailed=${retryFailedEnabled} at ${retryFailedTime}, autoCheck=${autoCheckIntervalMs / 60000}min, enableLogging=${settings.enableLogging}`);
+    return { orgDiscoveryEnabled, retryFailedEnabled, retryFailedTime, autoCheckMinutes: autoCheckIntervalMs / 60000, enableLogging: settings.enableLogging };
   });
 
   ipcMain.handle("schedule:retryNow", () => runRetryFailed());
