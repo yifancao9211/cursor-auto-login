@@ -147,7 +147,7 @@ onMounted(() => store.loadAccounts());
       <div class="flex items-center gap-3">
         <button class="apple-btn-secondary flex items-center gap-1.5" @click="handleDiscoverTeam" :disabled="discoveringTeam">
           <Users :class="['w-4 h-4', { 'animate-spin': discoveringTeam }]" />
-          {{ discoveringTeam ? '发现中...' : '团队入库' }}
+          {{ discoveringTeam ? '发现中...' : '组织成员发现' }}
         </button>
         <button class="apple-btn-secondary flex items-center gap-1.5" @click="openImportDialog">
           <ClipboardPaste class="w-4 h-4" /> 批量导入

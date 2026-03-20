@@ -729,9 +729,9 @@ async function discoverOrgMembers(accounts) {
     console.log("[org-discovery] No new members found");
   }
 
-  // 对所有 new/failed 且没有有效 token 的账号尝试自动登录
+  // 对所有 new 且没有有效 token 的账号尝试自动登录
   const needLogin = accountDb.listAll().filter(a =>
-    (a.account_status === "new" || a.account_status === "failed") &&
+    a.account_status === "new" &&
     !a.token && !a.access_token
   );
 
