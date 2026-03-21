@@ -33,9 +33,9 @@ onMounted(async () => {
   store.loadSettings();
   store.loadPreferences();
   store.applyTheme();
-  showOnboarding.value = !store.settings.onboardingDone;
   await store.loadAccounts();
   store.loadCurrentAuth();
+  showOnboarding.value = !store.settings.onboardingDone && store.accounts.length === 0;
 
   try {
     await window.api.updateScheduleSettings({

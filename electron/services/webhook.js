@@ -212,13 +212,14 @@ export async function feishuListChats(appId, appSecret) {
   });
 }
 
-async function sendFeishuAppMessage(appId, appSecret, chatId, card) {
+async function sendFeishuAppMessage(appId, appSecret, receiveId, card) {
   const token = await getFeishuTenantToken(appId, appSecret);
   if (!token) return { success: false, error: "no_token" };
+  const idType = receiveId.startsWith("ou_") ? "open_id" : "chat_id";
   const resp = await httpPost(
     "open.feishu.cn",
-    "/open-apis/im/v1/messages?receive_id_type=chat_id",
-    { receive_id: chatId, msg_type: "interactive", content: JSON.stringify(card) },
+    `/open-apis/im/v1/messages?receive_id_type=${idType}`,
+    { receive_id: receiveId, msg_type: "interactive", content: JSON.stringify(card) },
     { Authorization: `Bearer ${token}` },
   );
   if (resp.code === 0) return { success: true, messageId: resp.data?.message_id };
