@@ -9,7 +9,7 @@ const ALLOWED_COLUMNS = new Set([
   "days_remaining", "on_demand_used", "on_demand_limit", "plan_used", "plan_limit",
   "reset_date", "token_valid", "last_checked", "created_at", "account_status",
   "org_name", "org_id", "machine_id", "mac_machine_id", "dev_device_id", "sqm_id",
-  "stripe_customer_id", "team_id", "is_admin", "team_role",
+  "stripe_customer_id", "team_id", "is_admin", "team_role", "tags",
 ]);
 
 function getDbPath() {
@@ -58,6 +58,22 @@ export const accountDb = {
     addCol("team_id", "TEXT");
     addCol("is_admin", "INTEGER DEFAULT 0");
     addCol("team_role", "TEXT");
+    addCol("tags", "TEXT");
+
+    // usage_history table for trend charts
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS usage_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT NOT NULL,
+        email TEXT NOT NULL,
+        plan_used REAL DEFAULT 0,
+        plan_limit REAL DEFAULT 0,
+        on_demand_used REAL DEFAULT 0,
+        on_demand_limit REAL DEFAULT 0,
+        account_status TEXT,
+        UNIQUE(date, email)
+      )
+    `);
 
     // 把旧的没有 account_status 的记录，根据 token_valid 推断状态
     db.exec(`UPDATE accounts SET account_status = 'active' WHERE account_status IS NULL AND token_valid = 1 AND token IS NOT NULL`);
@@ -174,5 +190,40 @@ export const accountDb = {
     db.prepare(
       `UPDATE accounts SET machine_id = ?, mac_machine_id = ?, dev_device_id = ?, sqm_id = ? WHERE email = ?`
     ).run(ids.machineId, ids.macMachineId, ids.devDeviceId, ids.sqmId || "", email);
+  },
+
+  // -- Usage History --
+
+  recordSnapshots(date, accounts) {
+    const stmt = db.prepare(
+      `INSERT OR REPLACE INTO usage_history (date, email, plan_used, plan_limit, on_demand_used, on_demand_limit, account_status)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    );
+    const tx = db.transaction(() => {
+      for (const a of accounts) {
+        if (a.account_status === "disabled") continue;
+        stmt.run(date, a.email, a.plan_used || 0, a.plan_limit || 0, a.on_demand_used || 0, a.on_demand_limit || 0, a.account_status);
+      }
+    });
+    tx();
+  },
+
+  getUsageHistory(days = 30) {
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    return db.prepare("SELECT * FROM usage_history WHERE date >= ? ORDER BY date, email").all(since);
+  },
+
+  // -- Tags --
+
+  getAllTags() {
+    const rows = db.prepare("SELECT DISTINCT tags FROM accounts WHERE tags IS NOT NULL AND tags != ''").all();
+    const tagSet = new Set();
+    for (const r of rows) {
+      for (const t of r.tags.split(",")) {
+        const trimmed = t.trim().toLowerCase();
+        if (trimmed) tagSet.add(trimmed);
+      }
+    }
+    return [...tagSet].sort();
   },
 };

@@ -11,6 +11,11 @@ import { machineIdService } from "./services/machine-id.js";
 import { tokenExchange } from "./services/token-exchange.js";
 import { updater } from "./services/updater.js";
 import { logger } from "./services/logger.js";
+import { isTokenExpired, hasValidCredentials } from "./services/auth-utils.js";
+import { trayService } from "./services/tray.js";
+import { dispatchWebhook, WEBHOOK_EVENTS } from "./services/webhook.js";
+import { generateCSV } from "./services/report.js";
+import { USAGE_HISTORY_SCHEMA, SNAPSHOT_UPSERT_SQL } from "./services/usage-history.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
@@ -24,6 +29,7 @@ let orgDiscoveryEnabled = true;
 let retryFailedEnabled = false;
 let retryFailedTime = "00:00";
 let retryFailedTimer = null;
+let trayHandle = null;
 
 function createWindow() {
   const windowConfig = {
@@ -62,13 +68,17 @@ app.whenReady().then(() => {
   accountDb.init();
   registerIpcHandlers();
   createWindow();
-  // 防止 macOS App Nap 节流后台定时器
   powerSaveBlocker.start("prevent-app-suspension");
-  // 初始化 logger（传入 sendToRenderer 用于流式推送日志到前端）
   logger.init(sendToRenderer);
-  // 初始化自动更新
   updater.init(sendToRenderer);
-  // 启动后延迟 10 秒自动巡检一次（定时器由 App.vue 同步设置后创建）
+
+  // System tray
+  trayHandle = trayService.init(mainWindow, {
+    accountDb,
+    onSmartSwitch: () => switcher.smartSwitch(accountDb, cursorApi),
+    onRefresh: () => runQuickRefresh(),
+  });
+
   setTimeout(() => runAutoCheck(), 10000);
 
   app.on("activate", () => {
@@ -77,9 +87,23 @@ app.whenReady().then(() => {
 });
 
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
+  // Keep running in tray on macOS; quit on other platforms
+  if (process.platform !== "darwin") {
+    if (mainWindow) mainWindow = null;
+  }
 });
 
+
+function getWebhookSettings() {
+  try {
+    const raw = mainWindow?.webContents?.executeJavaScript("localStorage.getItem('cam-settings')");
+    if (raw) {
+      const s = JSON.parse(raw);
+      return { webhookEnabled: s.webhookEnabled, webhookUrl: s.webhookUrl, webhookType: s.webhookType };
+    }
+  } catch {}
+  return {};
+}
 
 function sendToRenderer(channel, data) {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -490,6 +514,29 @@ async function runAutoCheck() {
   });
 
   console.log(`[auto-check] Done. Admin covered: ${teamSpendCovered.size}, individual: ${results.filter(r => r.success).length} ok, ${results.filter(r => !r.success).length} failed`);
+
+  // Record usage snapshots for trend charts
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const allAccounts = accountDb.listAll();
+    const stmt = db => db.prepare("INSERT OR REPLACE INTO usage_history (date, email, plan_used, plan_limit, on_demand_used, on_demand_limit, account_status) VALUES (?, ?, ?, ?, ?, ?, ?)");
+    // Use accountDb's internal db via a new method
+    accountDb.recordSnapshots(today, allAccounts);
+  } catch (e) {
+    console.error("[auto-check] Failed to record usage snapshots:", e.message);
+  }
+
+  // Update tray menu
+  trayHandle?.updateMenu?.();
+
+  // Webhook: dispatch auto_check_done
+  const webhookSettings = getWebhookSettings();
+  dispatchWebhook(webhookSettings, WEBHOOK_EVENTS.AUTO_CHECK_DONE, {
+    total: results.length + teamSpendCovered.size,
+    success: results.filter(r => r.success).length + teamSpendCovered.size,
+    failed: results.filter(r => !r.success).length,
+  });
+
   return results;
   } finally {
     autoCheckRunning = false;
@@ -579,41 +626,7 @@ async function tryRefreshTokenAndCookie(acc, update) {
   return true;
 }
 
-/**
- * 检查 JWT token 是否已过期
- * @param {string} token - JWT token 或 URL-encoded cookie (userId::jwt)
- * @returns {boolean} 是否已过期（无法解析时返回 false，保守处理不标记过期）
- */
-function isTokenExpired(token) {
-  if (!token) return true;
-  try {
-    // 如果是 cookie 格式 (userId::jwt)，提取 JWT 部分
-    let jwt = token;
-    const decoded = decodeURIComponent(token);
-    const idx = decoded.indexOf("::");
-    if (idx > 0) jwt = decoded.substring(idx + 2);
-    // 解析 JWT payload
-    const segs = jwt.split(".");
-    if (segs.length !== 3) return false; // 无法解析，保守处理
-    let b64 = segs[1].replace(/-/g, "+").replace(/_/g, "/");
-    while (b64.length % 4) b64 += "=";
-    const payload = JSON.parse(Buffer.from(b64, "base64").toString());
-    if (!payload.exp) return false; // 没有过期时间，保守处理
-    return Date.now() / 1000 > payload.exp;
-  } catch {
-    return false; // 解析失败，保守不标记过期
-  }
-}
-
-/**
- * 检查账号是否有未过期的凭证
- */
-function hasValidCredentials(acc) {
-  if (acc.token && !isTokenExpired(acc.token)) return true;
-  if (acc.access_token && !isTokenExpired(acc.access_token)) return true;
-  if (acc.refresh_token) return true; // refresh_token 存在即可用于刷新
-  return false;
-}
+// isTokenExpired and hasValidCredentials imported from auth-utils.js
 
 async function checkSingleAccount(acc) {
   const update = { email: acc.email };
@@ -1045,4 +1058,33 @@ function registerIpcHandlers() {
   ipcMain.handle("updater:check", () => updater.checkForUpdates());
   ipcMain.handle("updater:install", () => updater.installUpdate());
   ipcMain.handle("updater:getVersion", () => updater.getVersion());
+
+  // -- Usage History --
+  ipcMain.handle("history:get", (_, days) => accountDb.getUsageHistory(days || 30));
+
+  // -- Tags --
+  ipcMain.handle("tags:getAll", () => accountDb.getAllTags());
+
+  // -- Report Export --
+  ipcMain.handle("report:exportCSV", async () => {
+    const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+      title: "导出使用报告",
+      defaultPath: `cursor-report-${new Date().toISOString().slice(0, 10)}.csv`,
+      filters: [{ name: "CSV", extensions: ["csv"] }],
+    });
+    if (canceled || !filePath) return { success: false };
+    const accounts = accountDb.listAll();
+    const csv = generateCSV(accounts);
+    fs.writeFileSync(filePath, "\uFEFF" + csv, "utf-8"); // BOM for Excel compatibility
+    return { success: true, count: accounts.length, filePath };
+  });
+
+  // -- Webhook test --
+  ipcMain.handle("webhook:test", async (_, settings) => {
+    const result = await dispatchWebhook(settings, WEBHOOK_EVENTS.AUTO_CHECK_DONE, {
+      message: "这是一条测试通知",
+      time: new Date().toLocaleString(),
+    });
+    return result || { success: true };
+  });
 }

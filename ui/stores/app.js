@@ -16,6 +16,11 @@ export const useAppStore = defineStore("app", {
       retryFailedEnabled: false,
       retryFailedTime: "00:00",
       enableLogging: false,
+      darkMode: false,
+      webhookEnabled: false,
+      webhookUrl: "",
+      webhookType: "discord",
+      onboardingDone: false,
     },
     preferences: {
       viewMode: "full",
@@ -129,6 +134,20 @@ export const useAppStore = defineStore("app", {
 
     savePreferences() {
       localStorage.setItem("cam-preferences", JSON.stringify(this.preferences));
+    },
+
+    toggleDarkMode() {
+      this.settings.darkMode = !this.settings.darkMode;
+      this.applyTheme();
+      this.saveSettings();
+    },
+
+    applyTheme() {
+      if (this.settings.darkMode) {
+        document.documentElement.classList.add("dark");
+      } else {
+        document.documentElement.classList.remove("dark");
+      }
     },
   },
 });

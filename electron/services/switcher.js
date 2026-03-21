@@ -2,15 +2,9 @@ import { exec } from "node:child_process";
 import { promisify } from "node:util";
 import { cursorDb } from "./cursor-db.js";
 import { machineIdService } from "./machine-id.js";
+import { extractJwt } from "./auth-utils.js";
 
 const execAsync = promisify(exec);
-
-function extractJwt(token) {
-  if (!token) return null;
-  const decoded = decodeURIComponent(token);
-  const parts = decoded.split("::");
-  return parts.length >= 2 ? parts[1] : parts[0];
-}
 
 async function killCursor() {
   try {

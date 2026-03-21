@@ -3,11 +3,30 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    --apple-bg: #f5f5f7;
+    --apple-sidebar: #f0f0f2;
+    --apple-card: rgba(255, 255, 255, 0.72);
+    --apple-text: #1d1d1f;
+    --apple-textMuted: #6e6e73;
+    --apple-border: rgba(0, 0, 0, 0.06);
+    --shadow-color: rgba(0, 0, 0, 0.04);
+  }
+
+  .dark {
+    --apple-bg: #1c1c1e;
+    --apple-sidebar: #2c2c2e;
+    --apple-card: rgba(44, 44, 46, 0.72);
+    --apple-text: #f5f5f7;
+    --apple-textMuted: #98989d;
+    --apple-border: rgba(255, 255, 255, 0.08);
+    --shadow-color: rgba(0, 0, 0, 0.3);
+  }
+
   body {
     @apply bg-apple-bg text-apple-text font-sans antialiased overflow-hidden select-none;
   }
-  
-  /* Webkit scrollbar for Mac feel */
+
   ::-webkit-scrollbar {
     width: 6px;
     height: 6px;
@@ -16,32 +35,30 @@
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: rgba(0, 0, 0, 0.15);
+    background: var(--apple-textMuted);
+    opacity: 0.3;
     border-radius: 3px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: rgba(0, 0, 0, 0.25);
+    opacity: 0.5;
   }
 }
 
 @layer components {
-  /* Mac Window Drag Region */
   .drag-region {
     -webkit-app-region: drag;
   }
   .no-drag {
     -webkit-app-region: no-drag;
   }
-  
-  /* Glassmorphic Components */
+
   .apple-glass {
     @apply bg-apple-card backdrop-blur-xl border border-apple-border shadow-apple-sm transition-all duration-300;
   }
   .apple-glass:hover {
     @apply shadow-apple;
   }
-  
-  /* Inputs & Buttons */
+
   .apple-btn {
     @apply inline-flex items-center justify-center px-4 py-2 rounded-lg font-medium text-sm transition-all duration-200 active:scale-95 no-drag select-none;
   }
@@ -49,6 +66,24 @@
     @apply apple-btn bg-apple-accent text-white shadow-sm hover:bg-blue-600;
   }
   .apple-btn-secondary {
-    @apply apple-btn bg-white/60 border border-apple-border text-apple-text hover:bg-white/80 shadow-sm;
+    @apply apple-btn border border-apple-border text-apple-text shadow-sm;
+    background: var(--apple-card);
   }
+  .apple-btn-secondary:hover {
+    opacity: 0.85;
+  }
+
+  /* Dark mode overrides for specific patterns */
+  .dark input, .dark textarea, .dark select {
+    background-color: var(--apple-sidebar);
+    border-color: var(--apple-border);
+    color: var(--apple-text);
+  }
+  .dark .bg-white { background-color: var(--apple-sidebar); }
+  .dark .bg-white\/60, .dark .bg-white\/70, .dark .bg-white\/80 { background-color: var(--apple-card); }
+  .dark .bg-white\/40, .dark .bg-white\/30, .dark .bg-white\/50, .dark .bg-white\/20 { background-color: rgba(255,255,255,0.04); }
+  .dark .bg-black\/5 { background-color: rgba(255,255,255,0.06); }
+  .dark .bg-black\/10 { background-color: rgba(255,255,255,0.1); }
+  .dark .border-white\/50 { border-color: rgba(255,255,255,0.08); }
+  .dark .text-apple-text { color: var(--apple-text); }
 }

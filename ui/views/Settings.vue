@@ -15,6 +15,9 @@ const form = ref({
   retryFailedEnabled: false,
   retryFailedTime: "00:00",
   enableLogging: false,
+  webhookEnabled: false,
+  webhookUrl: "",
+  webhookType: "discord",
 });
 
 const ready = ref(false);
@@ -60,6 +63,9 @@ onMounted(async () => {
     retryFailedEnabled: store.settings.retryFailedEnabled || false,
     retryFailedTime: store.settings.retryFailedTime || "00:00",
     enableLogging: store.settings.enableLogging || false,
+    webhookEnabled: store.settings.webhookEnabled || false,
+    webhookUrl: store.settings.webhookUrl || "",
+    webhookType: store.settings.webhookType || "discord",
   };
   // 获取版本号和机器码
   appVersion.value = await window.api.getAppVersion();
@@ -100,6 +106,19 @@ watch(() => form.value.retryFailedEnabled, syncScheduleToMain);
 watch(() => form.value.orgDiscoveryEnabled, syncScheduleToMain);
 watch(() => form.value.retryFailedTime, syncScheduleToMain);
 watch(() => form.value.enableLogging, syncScheduleToMain);
+
+function syncWebhookSettings() {
+  if (!ready.value) return;
+  Object.assign(store.settings, {
+    webhookEnabled: form.value.webhookEnabled,
+    webhookUrl: form.value.webhookUrl,
+    webhookType: form.value.webhookType,
+  });
+  store.saveSettings();
+}
+watch(() => form.value.webhookEnabled, syncWebhookSettings);
+watch(() => form.value.webhookUrl, syncWebhookSettings);
+watch(() => form.value.webhookType, syncWebhookSettings);
 
 async function handleSave() {
   Object.assign(store.settings, form.value);
@@ -152,6 +171,28 @@ async function checkUpdate() {
 
 function installUpdate() {
   window.api.installUpdate();
+}
+
+async function testWebhook() {
+  try {
+    const result = await window.api.testWebhook({
+      webhookEnabled: true,
+      webhookUrl: form.value.webhookUrl,
+      webhookType: form.value.webhookType,
+    });
+    toast.value?.show(result?.success ? "Webhook 测试发送成功！" : "发送失败: " + (result?.error || result?.status), result?.success ? "success" : "error");
+  } catch (e) {
+    toast.value?.show("测试失败: " + e.message, "error");
+  }
+}
+
+async function exportReport() {
+  try {
+    const result = await window.api.exportCSVReport();
+    if (result?.success) toast.value?.show(`已导出 ${result.count} 个账号的报告`, "success");
+  } catch (e) {
+    toast.value?.show("导出失败: " + e.message, "error");
+  }
 }
 
 const updateLabel = computed(() => {
@@ -314,6 +355,61 @@ const updateLabel = computed(() => {
             />
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- Webhook Notifications -->
+    <div class="apple-glass rounded-2xl overflow-hidden flex flex-col no-drag">
+      <div class="px-6 py-4 flex items-center gap-3 bg-white/40 border-b border-apple-border/50">
+        <div class="w-8 h-8 rounded-lg bg-cyan-500/10 flex items-center justify-center text-cyan-600">
+          <Activity class="w-4 h-4" />
+        </div>
+        <h3 class="font-bold text-apple-text">Webhook 通知</h3>
+      </div>
+      <div class="p-6 flex flex-col gap-4 bg-white/20">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div class="flex flex-col gap-1">
+            <span class="font-bold text-sm text-apple-text">启用 Webhook 推送</span>
+            <span class="text-xs text-apple-textMuted">当账号配额耗尽、Token 过期、巡检完成时自动推送通知。</span>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" v-model="form.webhookEnabled" class="sr-only peer">
+            <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-cyan-300 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-cyan-500"></div>
+          </label>
+        </div>
+        <template v-if="form.webhookEnabled">
+          <div class="h-px w-full bg-apple-border/50"></div>
+          <div class="flex flex-col gap-3">
+            <div class="flex items-center gap-3">
+              <select v-model="form.webhookType" class="bg-white border border-apple-border rounded-lg px-3 py-2 text-sm outline-none focus:border-apple-accent w-32">
+                <option value="discord">Discord</option>
+                <option value="feishu">飞书</option>
+                <option value="wecom">企业微信</option>
+              </select>
+              <input v-model="form.webhookUrl" class="flex-1 bg-white border border-apple-border rounded-lg px-3 py-2 text-sm outline-none focus:border-apple-accent font-mono" placeholder="Webhook URL..." />
+              <button class="apple-btn-secondary text-xs px-3" @click="testWebhook" :disabled="!form.webhookUrl">测试</button>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- Export Report -->
+    <div class="apple-glass rounded-2xl overflow-hidden flex flex-col no-drag">
+      <div class="px-6 py-4 flex items-center gap-3 bg-white/40 border-b border-apple-border/50">
+        <div class="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-600">
+          <Download class="w-4 h-4" />
+        </div>
+        <h3 class="font-bold text-apple-text">数据导出</h3>
+      </div>
+      <div class="p-6 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white/20">
+        <div class="flex flex-col gap-1">
+          <span class="font-bold text-sm text-apple-text">导出使用报告</span>
+          <span class="text-xs text-apple-textMuted">将所有账号的用量、余额、状态导出为 CSV 文件（Excel 兼容）。</span>
+        </div>
+        <button class="apple-btn-secondary flex items-center gap-1.5" @click="exportReport">
+          <Download class="w-4 h-4" /> 导出 CSV
+        </button>
       </div>
     </div>
 

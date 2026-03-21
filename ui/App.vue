@@ -7,13 +7,15 @@ import Settings from "./views/Settings.vue";
 import Logs from "./views/Logs.vue";
 import Toast from "./components/Toast.vue";
 import ConfirmDialog from "./components/ConfirmDialog.vue";
+import OnboardingWizard from "./components/OnboardingWizard.vue";
 import { useAppStore } from "./stores/app.js";
-import { LayoutDashboard, Users, PackagePlus, Settings as SettingsIcon, Hexagon, ScrollText } from "lucide-vue-next";
+import { LayoutDashboard, Users, PackagePlus, Settings as SettingsIcon, Hexagon, ScrollText, Moon, Sun } from "lucide-vue-next";
 
 const store = useAppStore();
 const activeTab = ref("dashboard");
 const toastRef = ref(null);
 const confirmRef = ref(null);
+const showOnboarding = ref(false);
 
 provide("toast", toastRef);
 provide("confirm", confirmRef);
@@ -30,6 +32,8 @@ const currentView = computed(() => viewComponents[activeTab.value]);
 onMounted(async () => {
   store.loadSettings();
   store.loadPreferences();
+  store.applyTheme();
+  showOnboarding.value = !store.settings.onboardingDone;
   await store.loadAccounts();
   store.loadCurrentAuth();
 
@@ -89,9 +93,19 @@ const tabs = [
         </button>
       </nav>
 
-      <div class="mt-auto px-3 py-3 rounded-xl bg-black/5 text-xs text-apple-textMuted flex items-center justify-between no-drag">
-        <span>Version 2.0.0</span>
-        <div class="w-2 h-2 rounded-full bg-apple-success shadow-[0_0_8px_rgba(52,199,89,0.6)]"></div>
+      <div class="mt-auto flex flex-col gap-2 no-drag">
+        <button 
+          @click="store.toggleDarkMode()" 
+          class="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-apple-textMuted hover:bg-black/5 hover:text-apple-text transition-all"
+        >
+          <Moon v-if="!store.settings.darkMode" class="w-4 h-4" />
+          <Sun v-else class="w-4 h-4" />
+          {{ store.settings.darkMode ? '浅色模式' : '深色模式' }}
+        </button>
+        <div class="px-3 py-3 rounded-xl bg-black/5 text-xs text-apple-textMuted flex items-center justify-between">
+          <span>v3.3.0</span>
+          <div class="w-2 h-2 rounded-full bg-apple-success shadow-[0_0_8px_rgba(52,199,89,0.6)]"></div>
+        </div>
       </div>
     </aside>
 
@@ -108,6 +122,7 @@ const tabs = [
 
     <Toast ref="toastRef" />
     <ConfirmDialog ref="confirmRef" />
+    <OnboardingWizard v-if="showOnboarding" @done="showOnboarding = false" />
   </div>
 </template>
 

@@ -2,7 +2,8 @@
 import { ref, computed, inject } from "vue";
 import { useAppStore } from "../stores/app.js";
 import { getBalance, parseJwt, buildSwitchPayload } from "../utils/account.js";
-import { RefreshCw, Zap, ShieldCheck, Mail, CreditCard, Activity, Users, CheckCircle2, DollarSign, XCircle, ArrowRightCircle } from "lucide-vue-next";
+import { computeHealthScore } from "../utils/health-score.js";
+import { RefreshCw, Zap, ShieldCheck, Mail, CreditCard, Activity, Users, CheckCircle2, DollarSign, XCircle, ArrowRightCircle, HeartPulse } from "lucide-vue-next";
 
 const store = useAppStore();
 const toast = inject("toast");
@@ -55,6 +56,8 @@ const stats = computed(() => {
   const failed = store.accounts.filter(a => !a.token_valid).length;
   return { total, valid, withBalance, failed };
 });
+
+const health = computed(() => computeHealthScore(store.accounts));
 
 const bestAccounts = computed(() => {
   return store.accounts
@@ -213,8 +216,21 @@ function quickSwitch(acc) {
       </div>
     </div>
 
-    <!-- Stats Grid -->
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+    <!-- Health Score + Stats Grid -->
+    <div class="grid grid-cols-2 lg:grid-cols-5 gap-4">
+      <div class="apple-glass rounded-xl p-5 flex flex-col gap-3 items-center justify-center text-center">
+        <div :class="['w-14 h-14 rounded-full flex items-center justify-center text-xl font-black border-4', 
+          health.score >= 90 ? 'border-apple-success/30 text-apple-success bg-apple-success/10' : 
+          health.score >= 60 ? 'border-apple-warning/30 text-apple-warning bg-apple-warning/10' : 
+          'border-apple-danger/30 text-apple-danger bg-apple-danger/10'
+        ]">
+          {{ health.grade }}
+        </div>
+        <div>
+          <div class="text-2xl font-black tabular-nums">{{ health.score }}</div>
+          <div class="text-xs font-medium text-apple-textMuted">健康度</div>
+        </div>
+      </div>
       <div class="apple-glass rounded-xl p-5 flex flex-col gap-3">
         <div class="w-10 h-10 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-500">
           <Users class="w-5 h-5" />

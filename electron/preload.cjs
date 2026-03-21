@@ -116,4 +116,16 @@ contextBridge.exposeInMainWorld("api", {
     return () => ipcRenderer.removeListener("logger:cleared", handler);
   },
   openLogDir: () => ipcRenderer.invoke("logger:openDir"),
+
+  // Usage History
+  getUsageHistory: (days) => ipcRenderer.invoke("history:get", days),
+
+  // Tags
+  getAllTags: () => ipcRenderer.invoke("tags:getAll"),
+
+  // Report
+  exportCSVReport: () => ipcRenderer.invoke("report:exportCSV"),
+
+  // Webhook
+  testWebhook: (settings) => ipcRenderer.invoke("webhook:test", settings),
 });
