@@ -33,6 +33,10 @@ const appVersion = ref("...");
 const machineIds = ref(null);
 const showFullIds = ref(false);
 
+const updateState = ref("idle"); // idle, checking, downloading, ready
+const updateMessage = ref("");
+const updateProgress = ref(0);
+
 const dbPathDisplay = computed(() => {
   const ua = navigator.userAgent.toLowerCase();
   if (ua.includes("win")) return "%APPDATA%\\Cursor\\User\\globalStorage\\state.vscdb";
@@ -76,10 +80,53 @@ onMounted(async () => {
   // 获取版本号和机器码
   appVersion.value = await window.api.getAppVersion();
   await loadMachineIds();
+
+  if (window.api.onUpdaterEvent) {
+    window.api.onUpdaterEvent(({ event, data }) => {
+      if (event === "checking") {
+        updateState.value = "checking";
+        updateMessage.value = "正在检查更新...";
+      } else if (event === "available") {
+        updateState.value = "downloading";
+        updateProgress.value = 0;
+        updateMessage.value = `发现新版本 ${data?.version || ''}，正在下载...`;
+      } else if (event === "not-available") {
+        updateState.value = "idle";
+        updateMessage.value = "当前已是最新版本";
+      } else if (event === "progress") {
+        updateState.value = "downloading";
+        updateProgress.value = Math.round(data?.percent || 0);
+        updateMessage.value = `正在下载... ${updateProgress.value}%`;
+      } else if (event === "downloaded") {
+        updateState.value = "ready";
+        updateMessage.value = "新版本下载完成，请重启安装";
+      } else if (event === "error") {
+        updateState.value = "idle";
+        updateMessage.value = `更新检查失败: ${data?.message || '未知错误'}`;
+      }
+    });
+  }
+
   // 等 nextTick 后再允许 watch 同步到 main，避免初始赋值触发多余调用
   await nextTick();
   ready.value = true;
 });
+
+async function checkUpdate() {
+  if (updateState.value === "checking" || updateState.value === "downloading") return;
+  updateState.value = "checking";
+  updateMessage.value = "正在请求更新...";
+  try {
+    await window.api.checkForUpdate();
+  } catch (e) {
+    updateState.value = "idle";
+    updateMessage.value = "检查更新出错";
+  }
+}
+
+function installUpdate() {
+  window.api.installUpdate();
+}
 
 // 即时持久化 toggle 开关和时间设置（无需手动点保存）
 async function syncScheduleToMain() {
@@ -563,17 +610,36 @@ function scrollToPushSection() {
       </div>
     </div>
 
-    <!-- About App -->
-    <div class="mt-4 flex flex-col items-center justify-center text-center gap-2 opacity-60 hover:opacity-100 transition-opacity">
-      <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-gray-100 to-gray-300 shadow-sm flex items-center justify-center text-gray-700 border border-white/50">
-        <ShieldCheck class="w-6 h-6" />
+    <!-- About App & Updater -->
+    <div class="apple-glass rounded-2xl overflow-hidden flex flex-col no-drag p-8 text-center mt-4">
+      <div class="flex flex-col items-center justify-center gap-3">
+        <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-gray-100 to-gray-300 shadow-sm flex items-center justify-center text-gray-700 border border-white/50 mb-1">
+          <ShieldCheck class="w-7 h-7" />
+        </div>
+        <div>
+          <h4 class="font-bold text-lg tracking-tight text-apple-text">Cursor Account Manager</h4>
+          <p class="text-[11px] font-bold text-apple-textMuted uppercase tracking-widest mt-1">Version {{ appVersion }}</p>
+        </div>
       </div>
-      <div>
-        <h4 class="font-bold tracking-tight text-apple-text">Cursor Account Manager</h4>
-        <p class="text-[10px] text-apple-textMuted uppercase tracking-widest mt-0.5">Version {{ appVersion }}</p>
+
+      <div class="mt-8 flex flex-col items-center gap-4 w-full max-w-xs mx-auto">
+        <div v-if="updateMessage" class="text-xs font-bold px-3 py-1.5 rounded-full" :class="updateState === 'error' ? 'bg-red-500/10 text-red-600' : 'bg-blue-500/10 text-blue-600'">
+          {{ updateMessage }}
+        </div>
+        
+        <div v-if="updateState === 'downloading'" class="w-full bg-black/5 rounded-full h-2 overflow-hidden shadow-inner">
+          <div class="bg-blue-500 h-2 rounded-full transition-all duration-300" :style="{ width: updateProgress + '%' }"></div>
+        </div>
+
+        <button v-if="updateState === 'ready'" @click="installUpdate" class="apple-btn-primary w-full py-2.5 text-sm shadow-md shadow-blue-500/20">
+          立即重启并安装更新
+        </button>
+        <button v-else @click="checkUpdate" :disabled="updateState === 'checking' || updateState === 'downloading'" class="apple-btn-secondary w-full py-2.5 text-sm transition-all" :class="{'opacity-50 cursor-not-allowed': updateState === 'checking' || updateState === 'downloading'}">
+          {{ updateState === 'checking' ? '正在检查...' : (updateState === 'downloading' ? '正在下载...' : '检查更新') }}
+        </button>
       </div>
-      <p class="text-xs text-apple-textMuted max-w-xs mt-1 font-medium">升级请前往 GitHub Releases 手动下载安装包。应用内已关闭自动检查与在线更新。</p>
-      <p class="text-xs text-apple-textMuted max-w-xs font-medium">设计用于无缝管理 Cursor IDE 多账号配额与无痛切换体验。</p>
+
+      <p class="text-xs text-apple-textMuted/60 mt-8 font-medium">设计用于无缝管理 Cursor IDE 多账号配额与无痛切换体验。</p>
     </div>
   </div>
 </template>

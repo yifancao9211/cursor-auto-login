@@ -14,6 +14,7 @@ import { hasValidCredentials } from "./services/auth-utils.js";
 import { trayService } from "./services/tray.js";
 import { dispatchWebhook, WEBHOOK_EVENTS, feishuListChats } from "./services/webhook.js";
 import { generateCSV } from "./services/report.js";
+import { initUpdater, checkForUpdates, quitAndInstall } from "./services/updater.js";
 
 const DEFAULT_PASSWORD = "abcd@1234";
 
@@ -104,6 +105,12 @@ app.whenReady().then(() => {
   } catch (e) {
     console.error("[auto-import] Failed:", e.message);
   }
+
+  // Init auto updater
+  initUpdater((event, data) => sendToRenderer("updater:event", { event, data }));
+  setTimeout(() => {
+    checkForUpdates().catch(e => console.error("[updater] init check failed:", e));
+  }, 15000);
 
   setTimeout(() => runAutoCheck(), 10000);
 
@@ -1105,6 +1112,9 @@ function registerIpcHandlers() {
   });
 
   // -- Updater --
+  ipcMain.handle("updater:check", () => checkForUpdates());
+  ipcMain.handle("updater:install", () => quitAndInstall());
+
   ipcMain.handle("app:getVersion", () => app.getVersion());
 
   // -- Usage History --

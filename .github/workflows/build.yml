@@ -117,11 +117,30 @@ jobs:
           git tag "${{ steps.pkg.outputs.tag }}" || true
           git push origin "${{ steps.pkg.outputs.tag }}" || true
 
+      - name: Generate latest-mac.yml
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          ZIP_FILE=$(ls release/*.zip | head -1)
+          ZIP_NAME=$(basename "$ZIP_FILE")
+          SHA512=$(shasum -a 512 "$ZIP_FILE" | awk '{print $1}' | xxd -r -p | base64)
+          SIZE=$(stat -f%z "$ZIP_FILE")
+          VERSION="${{ steps.pkg.outputs.version }}"
+          cat > release/latest-mac.yml <<YAML
+          version: ${VERSION}
+          files:
+            - url: ${ZIP_NAME}
+              sha512: ${SHA512}
+              size: ${SIZE}
+          path: ${ZIP_NAME}
+          sha512: ${SHA512}
+          releaseDate: '$(date -u +%Y-%m-%dT%H:%M:%S.000Z)'
+          YAML
+
       - name: Create GitHub Release
         if: steps.check.outputs.exists == 'false'
         run: |
           gh release create "${{ steps.pkg.outputs.tag }}" \
-            release/*.dmg release/*.zip \
+            release/*.dmg release/*.zip release/latest-mac.yml \
             --title "${{ steps.pkg.outputs.tag }}" \
             --generate-notes
         env:

@@ -84,6 +84,15 @@ contextBridge.exposeInMainWorld("api", {
     return () => ipcRenderer.removeListener("exchange:progress", handler);
   },
 
+  // Updater
+  checkForUpdate: () => ipcRenderer.invoke("updater:check"),
+  installUpdate: () => ipcRenderer.invoke("updater:install"),
+  onUpdaterEvent: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on("updater:event", handler);
+    return () => ipcRenderer.removeListener("updater:event", handler);
+  },
+
   getAppVersion: () => ipcRenderer.invoke("app:getVersion"),
 
   // Schedule settings
