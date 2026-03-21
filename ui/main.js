@@ -4,19 +4,20 @@ import App from "./App.vue";
 import { MotionPlugin } from "@vueuse/motion";
 import "./main.css";
 
-const app = createApp(App);
-app.use(createPinia());
-app.use(MotionPlugin);
-app.mount("#app");
-
-// Override renderer console to forward logs to main process logger
+// Override renderer console BEFORE mount so onMounted logs are captured
 (function setupRendererLogForwarding() {
   const _origLog = console.log.bind(console);
   const _origWarn = console.warn.bind(console);
   const _origError = console.error.bind(console);
 
   function fmt(...args) {
-    return args.map(a => (typeof a === "object" ? JSON.stringify(a, null, 2) : String(a))).join(" ");
+    return args.map(a => {
+      if (typeof a === "object") {
+        try { return JSON.stringify(a, null, 2); }
+        catch { return String(a); }
+      }
+      return String(a);
+    }).join(" ");
   }
 
   console.log = (...args) => {
@@ -32,3 +33,8 @@ app.mount("#app");
     window.api?.sendRendererLog?.("error", fmt(...args));
   };
 })();
+
+const app = createApp(App);
+app.use(createPinia());
+app.use(MotionPlugin);
+app.mount("#app");

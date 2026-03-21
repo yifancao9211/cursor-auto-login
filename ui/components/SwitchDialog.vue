@@ -17,6 +17,7 @@ const visible = computed({
 const resetMachineId = ref(true);
 
 function handleConfirm() {
+  visible.value = false;
   emit("confirm", { resetMachineId: resetMachineId.value });
 }
 </script>

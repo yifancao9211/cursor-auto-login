@@ -199,7 +199,7 @@ function handleScroll() {
         <tbody>
           <tr
             v-for="(entry, i) in filteredEntries"
-            :key="i"
+            :key="entry.ts + i"
             class="hover:bg-white/5 transition-colors border-b border-white/[0.03] last:border-0"
           >
             <td class="pl-3 pr-2 py-1 text-gray-500 whitespace-nowrap align-top w-[70px]">{{ formatTime(entry.ts) }}</td>

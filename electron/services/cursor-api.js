@@ -1,85 +1,54 @@
 import https from "node:https";
 
-function request(hostname, urlPath, token, method = "GET", body = null) {
+const UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+const MAX_BODY_SIZE = 2 * 1024 * 1024; // 2MB
+
+function makeRequest({ hostname, path: urlPath, method = "GET", headers, body = null, timeout = 15000 }) {
   return new Promise((resolve) => {
-    const headers = {
-      accept: "application/json",
-      cookie: `WorkosCursorSessionToken=${token}`,
-      "user-agent":
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      referer: "https://cursor.com/settings",
-    };
     if (body) {
       headers["content-type"] = "application/json";
-      headers["origin"] = "https://cursor.com";
     }
-    const req = https.request(
-      {
-        hostname,
-        path: urlPath,
-        method,
-        headers,
-      },
-      (res) => {
-        let data = "";
-        res.on("data", (chunk) => (data += chunk));
-        res.on("end", () => {
-          try {
-            resolve({ status: res.statusCode, data: JSON.parse(data) });
-          } catch {
-            resolve({ status: res.statusCode, data: null, raw: data.substring(0, 500) });
-          }
-        });
-      }
-    );
-    req.on("error", (e) => resolve({ status: 0, error: e.message }));
-    req.setTimeout(15000, () => {
-      req.destroy();
-      resolve({ status: 0, error: "timeout" });
+    const req = https.request({ hostname, path: urlPath, method, headers }, (res) => {
+      let data = "";
+      let totalSize = 0;
+      res.on("data", (chunk) => {
+        totalSize += chunk.length;
+        if (totalSize > MAX_BODY_SIZE) { req.destroy(); return; }
+        data += chunk;
+      });
+      res.on("end", () => {
+        try {
+          resolve({ status: res.statusCode, data: JSON.parse(data) });
+        } catch {
+          resolve({ status: res.statusCode, data: null, raw: data.substring(0, 500) });
+        }
+      });
     });
+    req.on("error", (e) => resolve({ status: 0, error: e.message }));
+    req.setTimeout(timeout, () => { req.destroy(); resolve({ status: 0, error: "timeout" }); });
     if (body) req.write(JSON.stringify(body));
     req.end();
   });
 }
 
-/** Bearer Token 请求 (api2.cursor.sh) */
+function request(hostname, urlPath, token, method = "GET", body = null) {
+  const headers = {
+    accept: "application/json",
+    cookie: `WorkosCursorSessionToken=${token}`,
+    "user-agent": UA,
+    referer: "https://cursor.com/settings",
+  };
+  if (body) headers["origin"] = "https://cursor.com";
+  return makeRequest({ hostname, path: urlPath, method, headers, body });
+}
+
 function requestBearer(urlPath, accessToken, method = "GET", body = null) {
-  return new Promise((resolve) => {
-    const headers = {
-      accept: "application/json",
-      Authorization: `Bearer ${accessToken}`,
-      "user-agent":
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    };
-    if (body) {
-      headers["content-type"] = "application/json";
-    }
-    const req = https.request(
-      {
-        hostname: "api2.cursor.sh",
-        path: urlPath,
-        method,
-        headers,
-      },
-      (res) => {
-        let data = "";
-        res.on("data", (chunk) => (data += chunk));
-        res.on("end", () => {
-          try {
-            resolve({ status: res.statusCode, data: JSON.parse(data) });
-          } catch {
-            resolve({ status: res.statusCode, data: null, raw: data.substring(0, 500) });
-          }
-        });
-      }
-    );
-    req.on("error", (e) => resolve({ status: 0, error: e.message }));
-    req.setTimeout(15000, () => {
-      req.destroy();
-      resolve({ status: 0, error: "timeout" });
-    });
-    if (body) req.write(JSON.stringify(body));
-    req.end();
+  return makeRequest({
+    hostname: "api2.cursor.sh",
+    path: urlPath,
+    method,
+    headers: { accept: "application/json", Authorization: `Bearer ${accessToken}`, "user-agent": UA },
+    body,
   });
 }
 

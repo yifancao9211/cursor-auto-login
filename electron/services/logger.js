@@ -7,6 +7,7 @@ class Logger {
     this.enabled = false;
     this.entries = [];
     this._sendToRenderer = null;
+    this._initialized = false;
     this._originalConsole = {
       log: console.log.bind(console),
       warn: console.warn.bind(console),
@@ -19,7 +20,10 @@ class Logger {
    */
   init(sendToRenderer) {
     this._sendToRenderer = sendToRenderer;
-    this._overrideConsole();
+    if (!this._initialized) {
+      this._overrideConsole();
+      this._initialized = true;
+    }
     this._originalConsole.log("[logger] Initialized (in-app mode)");
   }
 
@@ -58,7 +62,7 @@ class Logger {
     };
     this.entries.push(entry);
     if (this.entries.length > MAX_ENTRIES) {
-      this.entries = this.entries.slice(-MAX_ENTRIES);
+      this.entries.splice(0, this.entries.length - MAX_ENTRIES);
     }
     this._sendToRenderer?.("logger:entry", entry);
   }

@@ -22,7 +22,7 @@ async function killCursor() {
     } else if (process.platform === "win32") {
       await execAsync("taskkill /F /IM Cursor.exe /T").catch(() => {});
     } else {
-      await execAsync("pkill -f cursor || true");
+      await execAsync("pkill -f '/usr/share/cursor/cursor' || pkill -f '/opt/cursor/cursor' || true").catch(() => {});
     }
     await new Promise((r) => setTimeout(r, 2000));
   } catch {

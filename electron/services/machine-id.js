@@ -75,7 +75,9 @@ export const machineIdService = {
       data[TELEMETRY_KEYS.devDeviceId] = ids.devDeviceId;
       data[TELEMETRY_KEYS.sqmId] = ids.sqmId;
 
-      fs.writeFileSync(STORAGE_JSON_PATH, JSON.stringify(data, null, 2), "utf-8");
+      const tmpPath = STORAGE_JSON_PATH + ".tmp";
+      fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), "utf-8");
+      fs.renameSync(tmpPath, STORAGE_JSON_PATH);
       console.log("[machine-id] storage.json updated successfully");
       return { success: true };
     } catch (e) {

@@ -4,6 +4,14 @@ import Database from "better-sqlite3";
 
 let db;
 
+const ALLOWED_COLUMNS = new Set([
+  "email", "token", "access_token", "refresh_token", "membership_type",
+  "days_remaining", "on_demand_used", "on_demand_limit", "plan_used", "plan_limit",
+  "reset_date", "token_valid", "last_checked", "created_at", "account_status",
+  "org_name", "org_id", "machine_id", "mac_machine_id", "dev_device_id", "sqm_id",
+  "stripe_customer_id", "team_id", "is_admin", "team_role",
+]);
+
 function getDbPath() {
   return path.join(app.getPath("userData"), "accounts.db");
 }
@@ -86,12 +94,12 @@ export const accountDb = {
   upsert(account) {
     const existing = db.prepare("SELECT email FROM accounts WHERE email = ?").get(account.email);
     if (existing) {
-      const fields = Object.keys(account).filter((k) => k !== "email" && account[k] !== undefined);
+      const fields = Object.keys(account).filter((k) => k !== "email" && account[k] !== undefined && ALLOWED_COLUMNS.has(k));
       if (fields.length === 0) return;
       const sets = fields.map((f) => `${f} = @${f}`).join(", ");
       db.prepare(`UPDATE accounts SET ${sets} WHERE email = @email`).run(account);
     } else {
-      const fields = Object.keys(account).filter((k) => account[k] !== undefined);
+      const fields = Object.keys(account).filter((k) => account[k] !== undefined && ALLOWED_COLUMNS.has(k));
       const cols = fields.join(", ");
       const vals = fields.map((f) => `@${f}`).join(", ");
       db.prepare(`INSERT INTO accounts (${cols}) VALUES (${vals})`).run(account);

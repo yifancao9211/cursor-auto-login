@@ -1,20 +1,24 @@
 <script setup>
-import { ref, computed, onMounted } from "vue";
+import { ref, reactive, computed, inject } from "vue";
 import { useAppStore } from "../stores/app.js";
+import { getBalance, usageBarColor, buildSwitchPayload } from "../utils/account.js";
 import SwitchDialog from "../components/SwitchDialog.vue";
-import { Download, RefreshCw, Search, Trash2, Copy, CheckCircle2, AlertCircle, ArrowRightCircle, Check, X, Fingerprint, Building2, LayoutGrid, LayoutList, ArrowDownUp, Key, Upload, Ban } from "lucide-vue-next";
+import TokenDetailDialog from "../components/TokenDetailDialog.vue";
+import { Download, RefreshCw, Search, Trash2, CheckCircle2, AlertCircle, ArrowRightCircle, Fingerprint, Building2, LayoutGrid, LayoutList, ArrowDownUp, Upload, Ban } from "lucide-vue-next";
 
 const store = useAppStore();
+const toast = inject("toast");
+const confirmDialog = inject("confirm");
 const multipleSelection = ref(new Set());
 const switchDialogVisible = ref(false);
 const switchTarget = ref(null);
-const refreshingSingle = ref(new Set());
+const refreshingSingle = reactive(new Set());
 const balanceFilter = computed({
   get: () => store.preferences.balanceFilter || "all",
   set: (v) => { store.preferences.balanceFilter = v; store.savePreferences(); },
 });
 const tokenDialogVisible = ref(false);
-const tokenDetail = ref(null);
+const tokenDialogAccount = ref(null);
 const searchQuery = ref("");
 const viewMode = computed({
   get: () => store.preferences.viewMode || "full",
@@ -24,29 +28,11 @@ const sortBy = computed({
   get: () => store.preferences.sortBy || "email",
   set: (v) => { store.preferences.sortBy = v; store.savePreferences(); },
 });
-const copiedKeys = ref(new Set());
-
 const allRows = computed(() => {
-  // 仅显示 active 账号
   return store.activeAccounts.map((a) => {
-    const totalUsed = (a.plan_used || 0) + (a.on_demand_used || 0);
-    const totalLimit = (a.plan_limit || 0) + (a.on_demand_limit || 0);
-    const hasData = a.on_demand_limit != null || a.plan_limit != null;
-    const hasBalance = hasData && totalUsed < totalLimit;
-    const balance = hasData ? +(totalLimit - totalUsed).toFixed(2) : null;
-    const usagePercent = totalLimit > 0 ? Math.min(100, (totalUsed / totalLimit) * 100) : 0;
+    const bal = getBalance(a);
     const machineIdShort = a.machine_id ? a.machine_id.substring(0, 8) : null;
-    return {
-      ...a,
-      totalUsed: +totalUsed.toFixed(2),
-      totalLimit: +totalLimit.toFixed(2),
-      hasData,
-      hasBalance,
-      balance,
-      usagePercent,
-      isCurrent: a.email === store.currentEmail,
-      machineIdShort,
-    };
+    return { ...a, ...bal, isCurrent: a.email === store.currentEmail, machineIdShort };
   });
 });
 
@@ -86,12 +72,12 @@ function toggleSelect(email) {
 }
 
 async function handleRefreshSingle(row) {
-  refreshingSingle.value.add(row.email);
+  refreshingSingle.add(row.email);
   try {
     await window.api.refreshSingleAccount(row.email);
     await store.loadAccounts();
   } finally {
-    refreshingSingle.value.delete(row.email);
+    refreshingSingle.delete(row.email);
   }
 }
 
@@ -104,22 +90,16 @@ async function handleConfirmSwitch({ resetMachineId = true } = {}) {
   switchDialogVisible.value = false;
   try {
     const t = switchTarget.value;
-    const result = await store.switchAccount(
-      {
-        email: t.email,
-        token: t.token,
-        access_token: t.access_token,
-        refresh_token: t.refresh_token,
-        membership_type: t.membership_type,
-        stripe_customer_id: t.stripe_customer_id,
-        team_id: t.team_id,
-      },
-      { resetMachineId }
-    );
+    const result = await store.switchAccount(buildSwitchPayload(t), { resetMachineId });
     if (result.success) {
+      toast.value?.show("账号切换成功，Cursor 正在重启...", "success");
       setTimeout(() => store.loadCurrentAuth(), 3000);
+    } else {
+      toast.value?.show("切换失败: " + (result.error || "未知错误"), "error");
     }
-  } catch { /* ignore */ }
+  } catch (e) {
+    toast.value?.show("切换失败: " + e.message, "error");
+  }
 }
 
 async function handleRefreshAll() {
@@ -128,11 +108,19 @@ async function handleRefreshAll() {
 
 async function handleDeleteBatch() {
   if (multipleSelection.value.size === 0) return;
-  if (!confirm(`确定删除选中的 ${multipleSelection.value.size} 个账号？`)) return;
+  const count = multipleSelection.value.size;
+  const ok = await confirmDialog.value?.open({
+    title: "删除账号",
+    message: `确定要永久删除选中的 ${count} 个账号吗？此操作不可撤销。`,
+    confirmText: "删除",
+    type: "danger",
+  });
+  if (!ok) return;
   const emails = [...multipleSelection.value];
   await window.api.removeAccounts(emails);
   multipleSelection.value = new Set();
   await store.loadAccounts();
+  toast.value?.show(`已删除 ${count} 个账号`, "success");
 }
 
 async function handleDisableSingle(email) {
@@ -142,74 +130,46 @@ async function handleDisableSingle(email) {
 
 async function handleDisableBatch() {
   if (multipleSelection.value.size === 0) return;
-  if (!confirm(`确定停用选中的 ${multipleSelection.value.size} 个账号？\n停用后将不再参与自动巡检。`)) return;
+  const count = multipleSelection.value.size;
+  const ok = await confirmDialog.value?.open({
+    title: "停用账号",
+    message: `确定要停用选中的 ${count} 个账号吗？停用后将不再参与自动巡检。`,
+    confirmText: "停用",
+    type: "warning",
+  });
+  if (!ok) return;
   const emails = [...multipleSelection.value];
   await window.api.disableAccounts(emails);
   multipleSelection.value = new Set();
   await store.loadAccounts();
-}
-
-// Add/Import moved to Onboarding page
-
-function parseJwt(token) {
-  if (!token) return null;
-  try {
-    const payload = token.split(".")[1];
-    return JSON.parse(atob(payload.replace(/-/g, "+").replace(/_/g, "/")));
-  } catch { return null; }
+  toast.value?.show(`已停用 ${count} 个账号`, "warning");
 }
 
 function handleViewToken(row) {
-  const webJwt = row.token ? decodeURIComponent(row.token).split("::")[1] : null;
-  const webPayload = parseJwt(webJwt);
-  const sessionPayload = parseJwt(row.access_token);
-  tokenDetail.value = {
-    email: row.email,
-    cookie: row.token || null,
-    accessToken: row.access_token || null,
-    refreshToken: row.refresh_token || null,
-    webJwtPayload: webPayload,
-    sessionJwtPayload: sessionPayload,
-    hasSessionToken: !!row.access_token,
-  };
+  tokenDialogAccount.value = row;
   tokenDialogVisible.value = true;
-}
-
-async function copyText(text, key) {
-  await navigator.clipboard.writeText(text);
-  copiedKeys.value.add(key);
-  setTimeout(() => copiedKeys.value.delete(key), 2000);
 }
 
 async function handleExport() {
   try {
     const result = await window.api.exportFull();
-    if (result.success) alert(`已导出 ${result.count} 个账号到文件`);
-  } catch { /* ignore */ }
+    if (result.success) toast.value?.show(`已导出 ${result.count} 个账号到文件`, "success");
+  } catch (e) {
+    toast.value?.show("导出失败: " + e.message, "error");
+  }
 }
 
 async function handleImportFile() {
   try {
     const result = await window.api.importFull();
     if (result.success) {
-      alert(`已导入 ${result.count} 个账号`);
+      toast.value?.show(`已导入 ${result.count} 个账号`, "success");
       await store.loadAccounts();
     }
   } catch (e) {
-    alert("导入失败：" + e.message);
+    toast.value?.show("导入失败: " + e.message, "error");
   }
 }
-
-function usageBarColorClasses(pct) {
-  if (pct > 90) return "bg-apple-danger shadow-[0_0_8px_rgba(255,59,48,0.5)]";
-  if (pct > 70) return "bg-apple-warning shadow-[0_0_8px_rgba(255,149,0,0.5)]";
-  return "bg-apple-success shadow-[0_0_8px_rgba(52,199,89,0.5)]";
-}
-
-onMounted(async () => {
-  await store.loadAccounts();
-  await store.loadCurrentAuth();
-});
 </script>
 
 <template>
@@ -393,7 +353,7 @@ onMounted(async () => {
             </div>
             
             <div class="w-full h-1.5 bg-black/5 rounded-full overflow-hidden">
-              <div class="h-full rounded-full transition-all duration-700 ease-out" :class="usageBarColorClasses(row.usagePercent)" :style="{ width: row.usagePercent + '%' }"></div>
+              <div class="h-full rounded-full transition-all duration-700 ease-out" :class="usageBarColor(row.usagePercent)" :style="{ width: row.usagePercent + '%' }"></div>
             </div>
           </div>
           <div v-else class="flex flex-col justify-center items-center py-4 bg-white/30 rounded-xl border border-white/20 relative z-10 text-apple-textMuted">
@@ -412,7 +372,7 @@ onMounted(async () => {
                 :disabled="refreshingSingle.has(row.email)"
               >
                 <RefreshCw :class="['w-3 h-3', { 'animate-spin': refreshingSingle.has(row.email) }]" />
-                {{ refreshingSingle.has(row.email) ? '刷新中...' : '刷新' }}
+                {{ refreshingSingle.has(row.email) ? '...' : '刷新' }}
               </button>
               <button 
                 class="text-xs font-semibold text-apple-textMuted hover:text-apple-danger hover:bg-apple-danger/10 px-2.5 py-1.5 rounded-md transition-colors flex items-center gap-1" 
@@ -428,7 +388,7 @@ onMounted(async () => {
               class="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-bold transition-all shadow-sm active:scale-95" 
               :class="row.isCurrent ? 'bg-apple-success/10 text-apple-success hover:bg-apple-success/20' : 'bg-apple-accent text-white hover:bg-blue-600 hover:shadow-md'" 
               @click.stop="handleUse(row)">
-              {{ row.isCurrent ? '使用中' : '连使用此号' }}
+              {{ row.isCurrent ? '使用中' : '使用此号' }}
               <ArrowRightCircle v-if="!row.isCurrent" class="w-4 h-4" />
               <CheckCircle2 v-else class="w-4 h-4" />
             </button>
@@ -452,89 +412,8 @@ onMounted(async () => {
     <!-- Switch Dialog -->
     <SwitchDialog v-model="switchDialogVisible" :account="switchTarget" @confirm="handleConfirmSwitch" />
 
-    <!-- Add Dialog removed — moved to Onboarding page -->
-
-    <!-- Token Detail Dialog (Re-styled modal) -->
-    <Transition name="modal">
-      <div v-if="tokenDialogVisible" class="fixed inset-0 z-50 flex items-center justify-center no-drag p-4 pl-[220px]">
-        <div class="absolute inset-0 bg-black/30 backdrop-blur-md" @click="tokenDialogVisible = false"></div>
-        <div class="relative bg-apple-bg w-full max-w-2xl max-h-[90vh] rounded-2xl shadow-apple-lg border border-white/50 flex flex-col overflow-hidden" v-motion :initial="{ opacity: 0, scale: 0.95, y: 10 }" :enter="{ opacity: 1, scale: 1, y: 0, transition: { type: 'spring', damping: 25 } }">
-          <div class="px-6 py-4 border-b border-apple-border flex justify-between items-center bg-white/80 shrink-0">
-            <h3 class="font-bold text-apple-text text-lg">Token 检查器</h3>
-            <button class="w-8 h-8 flex items-center justify-center rounded-full bg-black/5 hover:bg-black/10 text-apple-textMuted transition-colors" @click="tokenDialogVisible = false">
-              <X class="w-5 h-5" />
-            </button>
-          </div>
-          
-          <div class="p-6 overflow-y-auto flex-1 bg-white/30" v-if="tokenDetail">
-            <div class="flex items-center gap-3 mb-6">
-              <div class="w-10 h-10 rounded-full bg-apple-accent/10 flex items-center justify-center text-apple-accent"><Key class="w-5 h-5" /></div>
-              <div class="text-xl font-black">{{ tokenDetail.email }}</div>
-            </div>
-
-            <div class="space-y-6">
-              <!-- Session Token -->
-              <div class="bg-white rounded-xl border border-apple-border p-4 shadow-sm">
-                <div class="flex items-center justify-between mb-3">
-                  <div class="flex items-center gap-2">
-                    <span class="font-bold text-apple-text">Session Token (IDE 使用)</span>
-                    <span :class="['px-2 py-0.5 rounded text-[10px] font-bold tracking-wide', tokenDetail.hasSessionToken ? 'bg-apple-success/10 text-apple-success' : 'bg-apple-danger/10 text-apple-danger']">
-                      {{ tokenDetail.hasSessionToken ? '可用' : '缺失' }}
-                    </span>
-                  </div>
-                  <button v-if="tokenDetail.accessToken" class="text-xs font-semibold text-apple-accent hover:bg-apple-accent/10 px-2.5 py-1 rounded transition-colors flex items-center gap-1.5" @click="copyText(tokenDetail.accessToken, 'access')">
-                    <Check v-if="copiedKeys.has('access')" class="w-3.5 h-3.5 text-apple-success" />
-                    <Copy v-else class="w-3.5 h-3.5" /> 
-                    {{ copiedKeys.has('access') ? '已复制' : '复制' }}
-                  </button>
-                </div>
-                
-                <template v-if="tokenDetail.accessToken">
-                  <div class="bg-black/5 p-3 rounded-lg font-mono text-[11px] text-apple-textMuted break-all overflow-hidden mb-3 border border-black/5 cursor-text select-text">
-                    {{ tokenDetail.accessToken.substring(0, 180) }}{{ tokenDetail.accessToken.length > 180 ? '...' : '' }}
-                  </div>
-                  <div v-if="tokenDetail.sessionJwtPayload" class="flex flex-wrap gap-4 text-[11px] font-medium px-1">
-                    <span class="text-apple-textMuted">Type: <span class="font-bold text-apple-text">{{ tokenDetail.sessionJwtPayload.type || '未知' }}</span></span>
-                    <span class="text-apple-textMuted">Expires: <span class="font-bold text-apple-text">{{ new Date(tokenDetail.sessionJwtPayload.exp * 1000).toLocaleString() }}</span></span>
-                  </div>
-                </template>
-                <div v-else class="text-sm font-medium text-apple-textMuted/60 px-1 py-2">需要使用网页 Cookie 重新签发获取此 Token。</div>
-              </div>
-
-              <!-- Web Cookie -->
-              <div class="bg-white rounded-xl border border-apple-border p-4 shadow-sm">
-                <div class="flex items-center justify-between mb-3">
-                  <div class="flex items-center gap-2">
-                    <span class="font-bold text-apple-text">Web Cookie (网页登录凭证)</span>
-                    <span :class="['px-2 py-0.5 rounded text-[10px] font-bold tracking-wide', tokenDetail.cookie ? 'bg-apple-success/10 text-apple-success' : 'bg-apple-danger/10 text-apple-danger']">
-                      {{ tokenDetail.cookie ? '可用' : '缺失' }}
-                    </span>
-                  </div>
-                  <button v-if="tokenDetail.cookie" class="text-xs font-semibold text-apple-accent hover:bg-apple-accent/10 px-2.5 py-1 rounded transition-colors flex items-center gap-1.5" @click="copyText(tokenDetail.cookie, 'cookie')">
-                    <Check v-if="copiedKeys.has('cookie')" class="w-3.5 h-3.5 text-apple-success" />
-                    <Copy v-else class="w-3.5 h-3.5" /> 
-                    {{ copiedKeys.has('cookie') ? '已复制' : '复制' }}
-                  </button>
-                </div>
-                
-                <template v-if="tokenDetail.cookie">
-                  <div class="bg-black/5 p-3 rounded-lg font-mono text-[11px] text-apple-textMuted break-all overflow-hidden mb-3 border border-black/5 cursor-text select-text">
-                    {{ tokenDetail.cookie.substring(0, 180) }}{{ tokenDetail.cookie.length > 180 ? '...' : '' }}
-                  </div>
-                  <div v-if="tokenDetail.webJwtPayload" class="flex flex-wrap gap-4 text-[11px] font-medium px-1">
-                    <span class="text-apple-textMuted">Type: <span class="font-bold text-apple-text">{{ tokenDetail.webJwtPayload.type || '未知' }}</span></span>
-                    <span class="text-apple-textMuted">Expires: <span class="font-bold text-apple-text">{{ new Date(tokenDetail.webJwtPayload.exp * 1000).toLocaleString() }}</span></span>
-                  </div>
-                </template>
-                <div v-else class="text-sm font-medium text-apple-textMuted/60 px-1 py-2">未保存网页 Cookie 数据。</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </Transition>
-
-    <!-- Batch Login moved to Onboarding page -->
+    <!-- Token Detail Dialog -->
+    <TokenDetailDialog v-model="tokenDialogVisible" :account="tokenDialogAccount" />
   </div>
 </template>
 

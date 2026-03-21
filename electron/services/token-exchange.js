@@ -18,6 +18,8 @@ function generatePKCE() {
   return { verifier, challenge, uuid };
 }
 
+const MAX_BODY_SIZE = 2 * 1024 * 1024; // 2MB
+
 function httpRequest(urlStr, headers, method = "GET", body = null) {
   return new Promise((resolve) => {
     const url = new URL(urlStr);
@@ -32,7 +34,12 @@ function httpRequest(urlStr, headers, method = "GET", body = null) {
       (res) => {
         const cookies = res.headers["set-cookie"] || [];
         let data = "";
-        res.on("data", (chunk) => (data += chunk));
+        let totalSize = 0;
+        res.on("data", (chunk) => {
+          totalSize += chunk.length;
+          if (totalSize > MAX_BODY_SIZE) { req.destroy(); return; }
+          data += chunk;
+        });
         res.on("end", () => resolve({ status: res.statusCode, headers: res.headers, cookies, raw: data }));
       }
     );

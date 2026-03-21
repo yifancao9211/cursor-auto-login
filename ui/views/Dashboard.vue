@@ -1,10 +1,11 @@
 <script setup>
-import { ref, computed, onMounted } from "vue";
+import { ref, computed, inject } from "vue";
 import { useAppStore } from "../stores/app.js";
-import { jwtDecode } from "jwt-decode";
+import { getBalance, parseJwt, buildSwitchPayload } from "../utils/account.js";
 import { RefreshCw, Zap, ShieldCheck, Mail, CreditCard, Activity, Users, CheckCircle2, DollarSign, XCircle, ArrowRightCircle } from "lucide-vue-next";
 
 const store = useAppStore();
+const toast = inject("toast");
 const refreshLoading = ref(false);
 const switchLoading = ref(false);
 
@@ -16,8 +17,8 @@ const currentAccount = computed(() => {
 const tokenExpiry = computed(() => {
   if (!store.currentAuth?.accessToken) return null;
   try {
-    const payload = jwtDecode(store.currentAuth.accessToken);
-    if (!payload.exp) return null;
+    const payload = parseJwt(store.currentAuth.accessToken);
+    if (!payload?.exp) return null;
     const exp = payload.exp * 1000;
     const remaining = exp - Date.now();
     if (remaining < 0) return { label: "已过期", type: "danger" };
@@ -31,22 +32,15 @@ const tokenExpiry = computed(() => {
   }
 });
 
-const totalUsed = computed(() => {
+const currentBalance = computed(() => {
   const a = currentAccount.value;
-  if (!a) return 0;
-  return +((a.plan_used || 0) + (a.on_demand_used || 0)).toFixed(2);
+  if (!a) return { totalUsed: 0, totalLimit: 0, usagePercent: 0 };
+  return getBalance(a);
 });
 
-const totalLimit = computed(() => {
-  const a = currentAccount.value;
-  if (!a) return 0;
-  return +((a.plan_limit || 0) + (a.on_demand_limit || 0)).toFixed(2);
-});
-
-const usagePercent = computed(() => {
-  if (!totalLimit.value) return 0;
-  return Math.min(100, (totalUsed.value / totalLimit.value) * 100);
-});
+const totalUsed = computed(() => currentBalance.value.totalUsed);
+const totalLimit = computed(() => currentBalance.value.totalLimit);
+const usagePercent = computed(() => currentBalance.value.usagePercent);
 
 const usageColorClasses = computed(() => {
   if (usagePercent.value > 90) return "bg-apple-danger shadow-[0_0_12px_rgba(255,59,48,0.5)]";
@@ -64,18 +58,10 @@ const stats = computed(() => {
 
 const bestAccounts = computed(() => {
   return store.accounts
-    .filter(a => {
-      if (!a.token_valid) return false;
-      const used = (a.plan_used || 0) + (a.on_demand_used || 0);
-      const limit = (a.plan_limit || 0) + (a.on_demand_limit || 0);
-      return limit > 0 && used < limit;
-    })
-    .map(a => {
-      const used = (a.plan_used || 0) + (a.on_demand_used || 0);
-      const limit = (a.plan_limit || 0) + (a.on_demand_limit || 0);
-      return { ...a, balance: +(limit - used).toFixed(2) };
-    })
-    .sort((a, b) => b.balance - a.balance)
+    .filter(a => a.token_valid)
+    .map(a => ({ ...a, ...getBalance(a) }))
+    .filter(a => a.hasBalance)
+    .sort((a, b) => (b.balance ?? 0) - (a.balance ?? 0))
     .slice(0, 5);
 });
 
@@ -84,7 +70,10 @@ async function handleRefresh() {
   try {
     await store.refreshAllAccounts();
     await store.loadCurrentAuth();
-  } catch { /* ignore */ }
+    toast.value?.show("数据刷新完成", "success");
+  } catch (e) {
+    toast.value?.show("刷新失败: " + e.message, "error");
+  }
   refreshLoading.value = false;
 }
 
@@ -93,16 +82,25 @@ async function handleSmartSwitch() {
   try {
     const result = await store.smartSwitch();
     if (result.success) {
+      toast.value?.show("已切换到最优账号", "success");
       await store.loadCurrentAuth();
+    } else {
+      toast.value?.show(result.reason === "current_has_balance" ? "当前账号仍有余额，无需切换" : "没有可用的备选账号", "warning");
     }
-  } catch { /* ignore */ }
+  } catch (e) {
+    toast.value?.show("智能切号失败: " + e.message, "error");
+  }
   switchLoading.value = false;
 }
 
-onMounted(async () => {
-  await store.loadCurrentAuth();
-  await store.loadAccounts();
-});
+function quickSwitch(acc) {
+  store.switchAccount(buildSwitchPayload(acc), { resetMachineId: true }).then(result => {
+    if (result.success) {
+      toast.value?.show("已切换到 " + acc.email, "success");
+      setTimeout(() => store.loadCurrentAuth(), 3000);
+    }
+  });
+}
 </script>
 
 <template>
@@ -276,7 +274,7 @@ onMounted(async () => {
               <span class="text-lg font-black">${{ acc.balance }}</span>
             </div>
             <ArrowRightCircle v-if="acc.email === store.currentEmail" class="w-5 h-5 text-apple-success opacity-50" />
-            <button v-else @click="store.switchAccount({ email: acc.email, token: acc.token, access_token: acc.access_token, refresh_token: acc.refresh_token, membership_type: acc.membership_type, stripe_customer_id: acc.stripe_customer_id, team_id: acc.team_id }, { resetMachineId: true })" class="w-6 h-6 rounded-full bg-black/5 hover:bg-black/10 flex items-center justify-center transition-colors text-apple-text" title="切换到此号">
+            <button v-else @click="quickSwitch(acc)" class="w-6 h-6 rounded-full bg-black/5 hover:bg-black/10 flex items-center justify-center transition-colors text-apple-text" title="切换到此号">
               <ArrowRightCircle class="w-4 h-4" />
             </button>
           </div>

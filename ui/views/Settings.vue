@@ -1,7 +1,9 @@
 <script setup>
-import { ref, watch, onMounted, onUnmounted, computed, nextTick } from "vue";
+import { ref, watch, onMounted, onUnmounted, computed, nextTick, inject } from "vue";
 import { useAppStore } from "../stores/app.js";
 import { KeyRound, Layers, HardDrive, Cpu, ShieldCheck, Activity, Timer, PlayCircle, Download, RefreshCw, CheckCircle2, AlertCircle, Users, RotateCcw, Clock, Fingerprint, Eye, EyeOff } from "lucide-vue-next";
+
+const toast = inject("toast");
 
 const store = useAppStore();
 
@@ -24,6 +26,13 @@ const updateInfo = ref({});
 let cleanupUpdateListener = null;
 const machineIds = ref(null);
 const showFullIds = ref(false);
+
+const dbPathDisplay = computed(() => {
+  const ua = navigator.userAgent.toLowerCase();
+  if (ua.includes("win")) return "%APPDATA%\\Cursor\\User\\globalStorage\\state.vscdb";
+  if (ua.includes("linux")) return "~/.config/Cursor/User/globalStorage/state.vscdb";
+  return "~/Library/Application Support/Cursor/User/globalStorage/state.vscdb";
+});
 
 async function loadMachineIds() {
   try {
@@ -103,7 +112,7 @@ async function handleSave() {
     retryFailedTime: form.value.retryFailedTime,
     enableLogging: form.value.enableLogging,
   });
-  alert("设置已保存！");
+  toast.value?.show("设置已保存", "success");
 }
 
 async function viewCurrentAuth() {
@@ -340,7 +349,7 @@ const updateLabel = computed(() => {
           <span class="font-bold text-sm text-apple-text">目标 SQLite 数据库路径</span>
           <div class="bg-black/5 rounded-lg border border-apple-border/50 p-3 font-mono text-[11px] text-apple-textMuted flex items-center gap-2 cursor-text select-text overflow-hidden">
             <HardDrive class="w-4 h-4 flex-shrink-0 opacity-50" />
-            <span class="break-all">~/Library/Application Support/Cursor/User/globalStorage/state.vscdb</span>
+            <span class="break-all">{{ dbPathDisplay }}</span>
           </div>
         </div>
 

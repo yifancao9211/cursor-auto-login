@@ -1,24 +1,38 @@
 <script setup>
-import { ref, onMounted } from "vue";
+import { ref, computed, onMounted, provide } from "vue";
 import Dashboard from "./views/Dashboard.vue";
 import Accounts from "./views/Accounts.vue";
 import Onboarding from "./views/Onboarding.vue";
 import Settings from "./views/Settings.vue";
 import Logs from "./views/Logs.vue";
+import Toast from "./components/Toast.vue";
+import ConfirmDialog from "./components/ConfirmDialog.vue";
 import { useAppStore } from "./stores/app.js";
 import { LayoutDashboard, Users, PackagePlus, Settings as SettingsIcon, Hexagon, ScrollText } from "lucide-vue-next";
 
 const store = useAppStore();
 const activeTab = ref("dashboard");
+const toastRef = ref(null);
+const confirmRef = ref(null);
+
+provide("toast", toastRef);
+provide("confirm", confirmRef);
+
+const viewComponents = {
+  dashboard: Dashboard,
+  accounts: Accounts,
+  onboarding: Onboarding,
+  logs: Logs,
+  settings: Settings,
+};
+const currentView = computed(() => viewComponents[activeTab.value]);
 
 onMounted(async () => {
-  // 加载持久化设置和偏好
   store.loadSettings();
   store.loadPreferences();
   await store.loadAccounts();
   store.loadCurrentAuth();
 
-  // 同步调度设置到 main 进程（确保重启后定时重试仍生效）
   try {
     await window.api.updateScheduleSettings({
       orgDiscoveryEnabled: store.settings.orgDiscoveryEnabled !== false,
@@ -43,13 +57,11 @@ const tabs = [
 
 <template>
   <div class="flex h-screen w-full bg-apple-bg overflow-hidden text-apple-text">
-    <!-- macOS/Windows Window Drag Strip — z-10 to stay below interactive content -->
     <div class="drag-region absolute top-0 left-0 right-0 h-7 z-50"></div>
 
     <!-- Sidebar -->
     <aside class="w-64 flex flex-col pt-12 pb-4 px-3 bg-apple-sidebar/80 backdrop-blur-3xl border-r border-apple-border/50 shadow-sm relative z-40">
       
-      <!-- Brand -->
       <div class="px-3 mb-6 flex items-center gap-3 no-drag">
         <div class="w-8 h-8 rounded-xl bg-apple-accent/10 flex items-center justify-center text-apple-accent shadow-sm">
           <Hexagon class="w-5 h-5 fill-current" />
@@ -60,7 +72,6 @@ const tabs = [
         </div>
       </div>
 
-      <!-- Navigation -->
       <nav class="flex-1 flex flex-col gap-1 no-drag">
         <button
           v-for="tab in tabs"
@@ -78,7 +89,6 @@ const tabs = [
         </button>
       </nav>
 
-      <!-- Sidebar Footer Stats -->
       <div class="mt-auto px-3 py-3 rounded-xl bg-black/5 text-xs text-apple-textMuted flex items-center justify-between no-drag">
         <span>Version 2.0.0</span>
         <div class="w-2 h-2 rounded-full bg-apple-success shadow-[0_0_8px_rgba(52,199,89,0.6)]"></div>
@@ -87,18 +97,17 @@ const tabs = [
 
     <!-- Main Content Area -->
     <main class="flex-1 flex flex-col relative z-30 overflow-hidden bg-apple-bg">
-      <div class="flex-1 overflow-y-auto no-drag">
+      <div class="flex-1 overflow-y-auto no-drag p-8 pb-12">
         <Transition name="fade-slide" mode="out-in">
-          <div :key="activeTab" class="h-full w-full p-8 pb-12">
-            <Dashboard v-if="activeTab === 'dashboard'" />
-            <Accounts v-if="activeTab === 'accounts'" />
-            <Onboarding v-if="activeTab === 'onboarding'" />
-            <Logs v-if="activeTab === 'logs'" />
-            <Settings v-if="activeTab === 'settings'" />
-          </div>
+          <KeepAlive>
+            <component :is="currentView" :key="activeTab" />
+          </KeepAlive>
         </Transition>
       </div>
     </main>
+
+    <Toast ref="toastRef" />
+    <ConfirmDialog ref="confirmRef" />
   </div>
 </template>
 

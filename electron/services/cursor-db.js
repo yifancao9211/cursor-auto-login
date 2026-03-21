@@ -38,11 +38,11 @@ function openDb() {
 
 export const cursorDb = {
   readAuth() {
+    let db;
     try {
-      const db = openDb();
+      db = openDb();
       const stmt = db.prepare("SELECT key, value FROM ItemTable WHERE key LIKE 'cursorAuth/%'");
       const rows = stmt.all();
-      db.close();
 
       const result = {};
       for (const row of rows) {
@@ -52,32 +52,33 @@ export const cursorDb = {
       return result;
     } catch (e) {
       return { error: e.message };
+    } finally {
+      db?.close();
     }
   },
 
   writeAuth({ accessToken, refreshToken, email, signUpType, membershipType, stripeCustomerId, teamId }) {
+    let db;
     try {
-      const db = openDb();
+      db = openDb();
       const stmt = db.prepare("INSERT OR REPLACE INTO ItemTable (key, value) VALUES (?, ?)");
       const tx = db.transaction(() => {
         if (accessToken) stmt.run(AUTH_KEYS.accessToken, accessToken);
         if (refreshToken) stmt.run(AUTH_KEYS.refreshToken, refreshToken);
         if (email) stmt.run(AUTH_KEYS.cachedEmail, email);
-        // Cursor 需要这些字段来正确显示用户信息
         stmt.run(AUTH_KEYS.cachedSignUpType, signUpType || "Auth_0");
         stmt.run(AUTH_KEYS.stripeMembershipType, membershipType || "free");
         stmt.run(AUTH_KEYS.stripeSubscriptionStatus, "active");
-        // 以下字段对 Cursor 显示用户信息至关重要
         if (stripeCustomerId) stmt.run(AUTH_KEYS.stripeCustomerId, stripeCustomerId);
         if (teamId) stmt.run(AUTH_KEYS.teamId, teamId);
-        // browser 标识：让 Cursor 认为是通过浏览器认证的
         stmt.run(AUTH_KEYS.browser, "true");
       });
       tx();
-      db.close();
       return { success: true };
     } catch (e) {
       return { success: false, error: e.message };
+    } finally {
+      db?.close();
     }
   },
 };

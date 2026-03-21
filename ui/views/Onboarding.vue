@@ -1,14 +1,17 @@
 <script setup>
-import { ref, computed, onMounted } from "vue";
+import { ref, reactive, computed, inject } from "vue";
 import { useAppStore } from "../stores/app.js";
+import { getBalance } from "../utils/account.js";
 import BatchLoginDialog from "../components/BatchLoginDialog.vue";
 import { Plus, Upload, RefreshCw, Trash2, AlertTriangle, PackagePlus, ShieldCheck, PlayCircle, BadgeInfo, Search, ClipboardPaste, X, Users, Ban, Undo2 } from "lucide-vue-next";
 
 const store = useAppStore();
+const toast = inject("toast");
+const confirmDialog = inject("confirm");
 const showBatchLogin = ref(false);
 const batchLoginEmails = ref("");
 const addEmail = ref("");
-const retryingSet = ref(new Set());
+const retryingSet = reactive(new Set());
 const filterText = ref("");
 const showImportDialog = ref(false);
 const importJsonText = ref("");
@@ -20,7 +23,10 @@ async function handleDiscoverTeam() {
   try {
     await window.api.discoverTeam();
     await store.loadAccounts();
-  } catch { /* ignore */ }
+    toast.value?.show("组织成员发现完成", "success");
+  } catch (e) {
+    toast.value?.show("发现失败: " + e.message, "error");
+  }
   discoveringTeam.value = false;
 }
 
@@ -80,9 +86,8 @@ async function handleImportJson() {
   try {
     const data = JSON.parse(text);
     const count = await window.api.importTokensJson(data);
-    importResult.value = { success: true, count: Object.keys(data).length };
+    importResult.value = { success: true, count };
     await store.loadAccounts();
-    // 2 秒后自动关闭
     setTimeout(() => {
       showImportDialog.value = false;
       importResult.value = null;
@@ -93,8 +98,8 @@ async function handleImportJson() {
 }
 
 async function retrySingle(email) {
-  if (retryingSet.value.has(email)) return;
-  retryingSet.value.add(email);
+  if (retryingSet.has(email)) return;
+  retryingSet.add(email);
   try {
     const pwd = store.settings.batchPassword || "abcd@1234";
     const result = await window.api.singleLogin({ email, password: pwd });
@@ -104,36 +109,53 @@ async function retrySingle(email) {
       if (result.refreshToken) data.refresh_token = result.refreshToken;
       await window.api.upsertAccount(data);
       await store.loadAccounts();
+      toast.value?.show(`${email} 登录成功`, "success");
+    } else {
+      toast.value?.show(`${email} 登录失败`, "error");
     }
-  } catch { /* ignore */ }
-  retryingSet.value.delete(email);
-}
-
-async function batchRetryAll(accounts) {
-  showBatchLogin.value = true;
+  } catch (e) {
+    toast.value?.show(`${email} 登录失败: ` + e.message, "error");
+  }
+  retryingSet.delete(email);
 }
 
 async function removeAccount(email) {
-  if (!confirm(`确定删除 ${email}？`)) return;
+  const ok = await confirmDialog.value?.open({
+    title: "删除账号",
+    message: `确定要删除 ${email} 吗？`,
+    confirmText: "删除",
+    type: "danger",
+  });
+  if (!ok) return;
   await window.api.removeAccounts([email]);
   await store.loadAccounts();
+  toast.value?.show(`已删除 ${email}`, "success");
 }
 
 async function clearAll(status) {
   const lists = { new: store.newAccounts, failed: store.failedAccounts, disabled: store.disabledAccounts };
   const list = lists[status] || [];
   if (list.length === 0) return;
-  const labels = { new: '待登录', failed: '已失败', disabled: '已禁用' };
-  if (!confirm(`确定清除所有 ${list.length} 个${labels[status]}账号？`)) return;
+  const labels = { new: "待登录", failed: "已失败", disabled: "已禁用" };
+  const ok = await confirmDialog.value?.open({
+    title: "批量清除",
+    message: `确定要清除所有 ${list.length} 个${labels[status]}账号吗？此操作不可撤销。`,
+    confirmText: "全部清除",
+    type: "danger",
+  });
+  if (!ok) return;
   await window.api.removeAccounts(list.map(a => a.email));
   await store.loadAccounts();
+  toast.value?.show(`已清除 ${list.length} 个账号`, "success");
 }
 
 function onBatchDone() {
   store.loadAccounts();
 }
 
-onMounted(() => store.loadAccounts());
+function balanceOf(acc) {
+  return getBalance(acc);
+}
 </script>
 
 <template>
@@ -215,8 +237,8 @@ onMounted(() => store.loadAccounts());
             </div>
             <div class="flex items-center gap-2">
               <span v-if="acc.org_name" class="text-[10px] text-apple-textMuted">{{ acc.org_name }}</span>
-              <span v-if="acc.plan_limit != null || acc.on_demand_limit != null" class="text-[10px] font-bold" :class="((acc.plan_limit || 0) + (acc.on_demand_limit || 0) - (acc.plan_used || 0) - (acc.on_demand_used || 0)) > 0 ? 'text-apple-success' : 'text-apple-danger'">
-                余额 ${{ +((acc.plan_limit || 0) + (acc.on_demand_limit || 0) - (acc.plan_used || 0) - (acc.on_demand_used || 0)).toFixed(2) }}
+              <span v-if="balanceOf(acc).hasData" class="text-[10px] font-bold" :class="balanceOf(acc).hasBalance ? 'text-apple-success' : 'text-apple-danger'">
+                余额 ${{ balanceOf(acc).balance }}
               </span>
             </div>
           </div>
@@ -224,7 +246,7 @@ onMounted(() => store.loadAccounts());
         <div class="flex items-center gap-2 flex-shrink-0">
           <button class="apple-btn-secondary !text-apple-accent hover:bg-apple-accent/10 text-xs px-3" :disabled="retryingSet.has(acc.email)" @click="retrySingle(acc.email)">
             <RefreshCw :class="['w-3.5 h-3.5 mr-1', { 'animate-spin': retryingSet.has(acc.email) }]" />
-            {{ retryingSet.has(acc.email) ? '签发中' : '登录' }}
+            {{ retryingSet.has(acc.email) ? '...' : '登录' }}
           </button>
           <button class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-apple-danger/10 text-apple-textMuted hover:text-apple-danger transition-colors" @click="removeAccount(acc.email)">
             <Trash2 class="w-3.5 h-3.5" />
@@ -263,8 +285,8 @@ onMounted(() => store.loadAccounts());
             </div>
             <div class="flex items-center gap-2">
               <span v-if="acc.membership_type" class="text-[10px] font-bold uppercase tracking-wider text-apple-danger/70">{{ acc.membership_type }}</span>
-              <span v-if="acc.plan_limit != null || acc.on_demand_limit != null" class="text-[10px] font-bold" :class="((acc.plan_limit || 0) + (acc.on_demand_limit || 0) - (acc.plan_used || 0) - (acc.on_demand_used || 0)) > 0 ? 'text-apple-success' : 'text-apple-danger'">
-                余额 ${{ +((acc.plan_limit || 0) + (acc.on_demand_limit || 0) - (acc.plan_used || 0) - (acc.on_demand_used || 0)).toFixed(2) }}
+              <span v-if="balanceOf(acc).hasData" class="text-[10px] font-bold" :class="balanceOf(acc).hasBalance ? 'text-apple-success' : 'text-apple-danger'">
+                余额 ${{ balanceOf(acc).balance }}
               </span>
               <span v-if="acc.last_checked" class="text-[10px] text-apple-textMuted flex items-center gap-0.5">
                 <BadgeInfo class="w-3 h-3" /> {{ new Date(acc.last_checked).toLocaleString() }}
@@ -275,7 +297,7 @@ onMounted(() => store.loadAccounts());
         <div class="flex items-center gap-2 flex-shrink-0">
           <button class="apple-btn-secondary !text-apple-warning hover:bg-apple-warning/10 text-xs px-3" :disabled="retryingSet.has(acc.email)" @click="retrySingle(acc.email)">
             <RefreshCw :class="['w-3.5 h-3.5 mr-1', { 'animate-spin': retryingSet.has(acc.email) }]" />
-            {{ retryingSet.has(acc.email) ? '重试中' : '重试' }}
+            {{ retryingSet.has(acc.email) ? '...' : '重试' }}
           </button>
           <button class="apple-btn-secondary !text-apple-textMuted hover:bg-black/5 text-xs px-2" title="标记为禁用" @click="toggleDisabled(acc.email, true)">
             <Ban class="w-3.5 h-3.5" />

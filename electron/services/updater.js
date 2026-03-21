@@ -7,11 +7,15 @@ const { autoUpdater } = pkg;
 import { app } from "electron";
 
 let _sendToRenderer = null;
+let _initialized = false;
+let _checkTimer = null;
 
 function init(sendToRenderer) {
   _sendToRenderer = sendToRenderer;
 
-  // 手动设置 GitHub 发布源（替代 app-update.yml）
+  if (_initialized) return;
+  _initialized = true;
+
   autoUpdater.setFeedURL({
     provider: "github",
     owner: "yifancao9211",
@@ -68,11 +72,9 @@ function init(sendToRenderer) {
     send("error", { message: err.message });
   });
 
-  // 启动后延迟 10 秒检查一次
   if (!isDev()) {
     setTimeout(() => checkForUpdates(), 10000);
-    // 每小时检查一次
-    setInterval(() => checkForUpdates(), 60 * 60 * 1000);
+    _checkTimer = setInterval(() => checkForUpdates(), 60 * 60 * 1000);
   }
 }
 

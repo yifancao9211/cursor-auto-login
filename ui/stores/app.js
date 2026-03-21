@@ -43,13 +43,19 @@ export const useAppStore = defineStore("app", {
 
   actions: {
     async loadCurrentAuth() {
-      this.currentAuth = await window.api.readAuth();
+      try {
+        this.currentAuth = await window.api.readAuth();
+      } catch (e) {
+        console.error("[store] loadCurrentAuth failed:", e.message);
+      }
     },
 
     async loadAccounts() {
       this.loading = true;
       try {
         this.accounts = await window.api.listAccounts();
+      } catch (e) {
+        console.error("[store] loadAccounts failed:", e.message);
       } finally {
         this.loading = false;
       }
@@ -71,11 +77,21 @@ export const useAppStore = defineStore("app", {
     },
 
     async switchAccount(account, options = {}) {
-      return window.api.switchAccount(account, options);
+      try {
+        return await window.api.switchAccount(account, options);
+      } catch (e) {
+        console.error("[store] switchAccount failed:", e.message);
+        return { success: false, error: e.message };
+      }
     },
 
     async smartSwitch() {
-      return window.api.smartSwitch();
+      try {
+        return await window.api.smartSwitch();
+      } catch (e) {
+        console.error("[store] smartSwitch failed:", e.message);
+        return { success: false, error: e.message };
+      }
     },
 
     async loadAutoCheckStatus() {
