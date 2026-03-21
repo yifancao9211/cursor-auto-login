@@ -36,6 +36,12 @@ let cleanupUpdateListener = null;
 const machineIds = ref(null);
 const showFullIds = ref(false);
 
+/** Electron 在 mac 上 UA 含 Macintosh；用于旧版未带 manualDownload 时的兜底 */
+const isMacClient = computed(() => {
+  const ua = navigator.userAgent;
+  return ua.includes("Mac") && !ua.includes("Windows");
+});
+
 const dbPathDisplay = computed(() => {
   const ua = navigator.userAgent.toLowerCase();
   if (ua.includes("win")) return "%APPDATA%\\Cursor\\User\\globalStorage\\state.vscdb";
@@ -184,8 +190,21 @@ async function checkUpdate() {
   await window.api.checkForUpdate();
 }
 
-function installUpdate() {
-  window.api.installUpdate();
+async function installUpdate() {
+  const r = await window.api.installUpdate();
+  if (r?.skipped) {
+    toast.value?.show("macOS 请从 GitHub 下载 DMG 安装", "warning");
+  }
+}
+
+async function openReleaseDownload() {
+  const v = updateInfo.value?.version;
+  if (!v) {
+    await window.api.openReleasePage(appVersion.value);
+    return;
+  }
+  const res = await window.api.openReleasePage(v);
+  if (!res?.ok) toast.value?.show("无法打开下载页", "error");
 }
 
 async function testWebhook() {
@@ -232,7 +251,10 @@ async function exportReport() {
 const updateLabel = computed(() => {
   switch (updateStatus.value) {
     case 'checking': return '检查中...';
-    case 'available': return `发现新版本 v${updateInfo.value.version}`;
+    case 'available':
+      return updateInfo.value.manualDownload
+        ? `发现新版本 v${updateInfo.value.version}（macOS 请下载 DMG 安装）`
+        : `发现新版本 v${updateInfo.value.version}`;
     case 'downloading': return `下载中 ${updateInfo.value.percent || 0}%`;
     case 'downloaded': return `v${updateInfo.value.version} 已就绪`;
     case 'not-available': return '已是最新版本';
@@ -602,13 +624,23 @@ const updateLabel = computed(() => {
         </div>
 
         <!-- Action buttons -->
-        <div class="flex items-center gap-2">
+        <div class="flex flex-wrap items-center justify-center gap-2">
           <button
             v-if="updateStatus !== 'downloading' && updateStatus !== 'downloaded'"
             class="text-xs font-bold text-apple-accent hover:text-blue-600 transition-colors px-3 py-1 rounded-lg hover:bg-blue-50"
             :disabled="updateStatus === 'checking'"
             @click="checkUpdate"
           >检查更新</button>
+          <button
+            v-if="updateStatus === 'available' && updateInfo.manualDownload"
+            class="text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 transition-colors px-4 py-1.5 rounded-lg shadow-sm"
+            @click="openReleaseDownload"
+          >打开 GitHub 下载</button>
+          <button
+            v-if="updateStatus === 'error' && (updateInfo.manualDownload || isMacClient)"
+            class="text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 transition-colors px-4 py-1.5 rounded-lg shadow-sm"
+            @click="openReleaseDownload"
+          >打开 GitHub 下载</button>
           <button
             v-if="updateStatus === 'downloaded'"
             class="text-xs font-bold text-white bg-apple-success hover:bg-green-600 transition-colors px-4 py-1.5 rounded-lg shadow-sm"

@@ -10,6 +10,7 @@ import { loginService } from "./services/login.js";
 import { machineIdService } from "./services/machine-id.js";
 import { tokenExchange } from "./services/token-exchange.js";
 import { updater } from "./services/updater.js";
+import { latestReleaseUrl } from "./services/github-release-url.js";
 import { logger } from "./services/logger.js";
 import { hasValidCredentials } from "./services/auth-utils.js";
 import { trayService } from "./services/tray.js";
@@ -1110,6 +1111,12 @@ function registerIpcHandlers() {
   ipcMain.handle("updater:check", () => updater.checkForUpdates());
   ipcMain.handle("updater:install", () => updater.installUpdate());
   ipcMain.handle("updater:getVersion", () => updater.getVersion());
+  ipcMain.handle("updater:openReleasePage", async (_e, version) => {
+    const v = String(version ?? "").trim().replace(/^v/i, "");
+    const url = /^\d+\.\d+/.test(v) ? updater.releaseTagUrl(v) : latestReleaseUrl();
+    await shell.openExternal(url);
+    return { ok: true };
+  });
 
   // -- Usage History --
   ipcMain.handle("history:get", (_, days) => accountDb.getUsageHistory(days || 30));

@@ -80,6 +80,7 @@ jobs:
           provider: github
           owner: yifancao9211
           repo: cursor-auto-login
+          updaterCacheDirName: cursor-account-manager
           EOF
           echo "Created app-update.yml in $APP_PATH/Contents/Resources/"
 

@@ -106,7 +106,7 @@ const tabs = [
           {{ store.settings.darkMode ? '浅色模式' : '深色模式' }}
         </button>
         <div class="px-3 py-3 rounded-xl bg-black/5 text-xs text-apple-textMuted flex items-center justify-between">
-          <span>v3.3.1</span>
+          <span>v3.3.2</span>
           <div class="w-2 h-2 rounded-full bg-apple-success shadow-[0_0_8px_rgba(52,199,89,0.6)]"></div>
         </div>
       </div>

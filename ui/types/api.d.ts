@@ -171,8 +171,9 @@ interface ElectronAPI {
 
   // Updater
   checkForUpdate(): Promise<any>;
-  installUpdate(): void;
+  installUpdate(): Promise<{ skipped?: boolean; reason?: string } | void>;
   getAppVersion(): Promise<string>;
+  openReleasePage(version: string): Promise<{ ok: boolean; error?: string }>;
 
   // Dialogs
   openFileDialog(options?: any): Promise<any>;
