@@ -21,6 +21,11 @@ const DEFAULT_PASSWORD = "abcd@1234";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
 
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+}
+
 let mainWindow;
 let autoCheckTimer = null;
 let autoCheckIntervalMs = 30 * 60 * 1000; // 默认 30 分钟
@@ -64,6 +69,14 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, "../dist-renderer/index.html"));
   }
 }
+
+app.on("second-instance", () => {
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  }
+});
 
 app.whenReady().then(() => {
   accountDb.init();
