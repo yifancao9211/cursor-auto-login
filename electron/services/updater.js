@@ -1,5 +1,6 @@
 import { app } from "electron";
-import { autoUpdater } from "electron-updater";
+import electronUpdater from "electron-updater";
+const { autoUpdater } = electronUpdater;
 
 export function initUpdater(onEvent) {
   if (!app.isPackaged) return;
