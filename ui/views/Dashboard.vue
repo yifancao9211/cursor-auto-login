@@ -3,7 +3,7 @@ import { ref, computed, inject } from "vue";
 import { useAppStore } from "../stores/app.js";
 import { getBalance, parseJwt, buildSwitchPayload } from "../utils/account.js";
 import { computeHealthScore } from "../utils/health-score.js";
-import { RefreshCw, Zap, ShieldCheck, Mail, CreditCard, Activity, Users, CheckCircle2, DollarSign, XCircle, ArrowRightCircle, HeartPulse } from "lucide-vue-next";
+import { RefreshCw, Zap, ShieldCheck, Mail, CreditCard, Activity, Users, CheckCircle2, DollarSign, XCircle, ArrowRightCircle } from "lucide-vue-next";
 
 const store = useAppStore();
 const toast = inject("toast");

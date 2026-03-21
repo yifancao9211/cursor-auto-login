@@ -50,17 +50,81 @@ export function buildDiscordEmbed(payload) {
   };
 }
 
+const FEISHU_COLORS = {
+  [WEBHOOK_EVENTS.QUOTA_EXHAUSTED]: "orange",
+  [WEBHOOK_EVENTS.ALL_EXHAUSTED]: "red",
+  [WEBHOOK_EVENTS.TOKEN_BATCH_EXPIRED]: "red",
+  [WEBHOOK_EVENTS.NEW_MEMBERS]: "green",
+  [WEBHOOK_EVENTS.AUTO_CHECK_DONE]: "blue",
+};
+
+const FEISHU_ICONS = {
+  [WEBHOOK_EVENTS.QUOTA_EXHAUSTED]: "⚠️",
+  [WEBHOOK_EVENTS.ALL_EXHAUSTED]: "🚨",
+  [WEBHOOK_EVENTS.TOKEN_BATCH_EXPIRED]: "🔑",
+  [WEBHOOK_EVENTS.NEW_MEMBERS]: "👥",
+  [WEBHOOK_EVENTS.AUTO_CHECK_DONE]: "✅",
+};
+
 export function buildFeishuCard(payload) {
-  const lines = Object.entries(payload.data).map(([k, v]) => `**${k}**: ${v}`).join("\n");
+  const color = FEISHU_COLORS[payload.event] || "blue";
+  const icon = FEISHU_ICONS[payload.event] || "🔔";
+  const elements = [];
+
+  if (payload.event === WEBHOOK_EVENTS.AUTO_CHECK_DONE) {
+    const d = payload.data;
+    elements.push({
+      tag: "column_set",
+      flex_mode: "none",
+      background_style: "default",
+      columns: [
+        feishuStatColumn("总计", String(d.total || 0), "green"),
+        feishuStatColumn("成功", String(d.success || 0), "blue"),
+        feishuStatColumn("失败", String(d.failed || 0), d.failed > 0 ? "red" : "grey"),
+      ],
+    });
+  } else if (payload.event === WEBHOOK_EVENTS.QUOTA_EXHAUSTED || payload.event === WEBHOOK_EVENTS.ALL_EXHAUSTED) {
+    const d = payload.data;
+    elements.push({ tag: "markdown", content: `**账号**: ${d.email || "全部"}\n**余额**: $${d.balance ?? 0}\n**总账号数**: ${d.totalAccounts || "-"}` });
+    elements.push({ tag: "hr" });
+    elements.push({ tag: "markdown", content: `<font color="red">请尽快处理，当前已无可用配额。</font>` });
+  } else if (payload.event === WEBHOOK_EVENTS.TOKEN_BATCH_EXPIRED) {
+    const d = payload.data;
+    const emailList = (d.emails || []).slice(0, 5).join("\n• ");
+    elements.push({ tag: "markdown", content: `**过期数量**: ${d.count}\n\n• ${emailList}${d.count > 5 ? `\n\n...及其他 ${d.count - 5} 个` : ""}` });
+  } else if (payload.event === WEBHOOK_EVENTS.NEW_MEMBERS) {
+    elements.push({ tag: "markdown", content: `**团队**: ${payload.data.team || "-"}\n**新成员数**: ${payload.data.count}` });
+  } else {
+    const lines = Object.entries(payload.data).map(([k, v]) => `**${k}**: ${v}`).join("\n");
+    elements.push({ tag: "markdown", content: lines || "无附加信息" });
+  }
+
+  elements.push({
+    tag: "note",
+    elements: [{ tag: "plain_text", content: `${payload.source} · ${new Date(payload.timestamp).toLocaleString("zh-CN")}` }],
+  });
+
   return {
     msg_type: "interactive",
     card: {
-      header: { title: { tag: "plain_text", content: `🔔 ${payload.label}` } },
-      elements: [
-        { tag: "markdown", content: lines || "无附加信息" },
-        { tag: "note", elements: [{ tag: "plain_text", content: `${payload.source} · ${payload.timestamp}` }] },
-      ],
+      header: {
+        template: color,
+        title: { tag: "plain_text", content: `${icon} ${payload.label}` },
+      },
+      elements,
     },
+  };
+}
+
+function feishuStatColumn(label, value, color = "grey") {
+  return {
+    tag: "column",
+    width: "weighted",
+    weight: 1,
+    elements: [
+      { tag: "markdown", content: `<font color="${color}">**${value}**</font>`, text_align: "center" },
+      { tag: "markdown", content: `<font color="grey">${label}</font>`, text_align: "center" },
+    ],
   };
 }
 

@@ -7,7 +7,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 let tray = null;
 
 export const trayService = {
-  init(mainWindow, { accountDb, onSmartSwitch, onRefresh, onQuit }) {
+  init(mainWindow, { accountDb, onSmartSwitch, onRefresh }) {
     if (tray) return;
 
     const iconPath = path.join(__dirname, "../../build/icon.png");
@@ -58,7 +58,7 @@ export const trayService = {
             mainWindow?.focus();
           },
         },
-        { label: "退出", click: () => { onQuit?.(); app.quit(); } },
+        { label: "退出", click: () => app.quit() },
       ]);
 
       tray.setContextMenu(menu);

@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import crypto from "node:crypto";
+import { generatePKCE } from "./auth-utils.js";
 
 let chromium;
 async function getChromium() {
@@ -10,13 +10,6 @@ async function getChromium() {
     chromium = pw.chromium;
   }
   return chromium;
-}
-
-function generatePKCE() {
-  const verifier = crypto.randomBytes(32).toString("base64url");
-  const challenge = crypto.createHash("sha256").update(verifier).digest("base64url");
-  const uuid = crypto.randomUUID();
-  return { verifier, challenge, uuid };
 }
 
 async function pollForTokens(uuid, verifier, maxAttempts = 60) {

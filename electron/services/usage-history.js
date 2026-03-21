@@ -35,24 +35,4 @@ export function buildTrendData(aggregated, days) {
   return result;
 }
 
-/**
- * SQL helpers for the usage_history table (used in account-db.js).
- */
-export const USAGE_HISTORY_SCHEMA = `
-  CREATE TABLE IF NOT EXISTS usage_history (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    date TEXT NOT NULL,
-    email TEXT NOT NULL,
-    plan_used REAL DEFAULT 0,
-    plan_limit REAL DEFAULT 0,
-    on_demand_used REAL DEFAULT 0,
-    on_demand_limit REAL DEFAULT 0,
-    account_status TEXT,
-    UNIQUE(date, email)
-  )
-`;
-
-export const SNAPSHOT_UPSERT_SQL = `
-  INSERT OR REPLACE INTO usage_history (date, email, plan_used, plan_limit, on_demand_used, on_demand_limit, account_status)
-  VALUES (?, ?, ?, ?, ?, ?, ?)
-`;
+// SQL schema and upsert are handled directly in account-db.js init()

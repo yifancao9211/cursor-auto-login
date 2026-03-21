@@ -29,6 +29,7 @@ interface Account {
   team_id?: string;
   is_admin?: 0 | 1;
   team_role?: string;
+  tags?: string;
 }
 
 interface AuthData {
@@ -155,6 +156,18 @@ interface ElectronAPI {
   setLoggingEnabled(enabled: boolean): Promise<void>;
   sendRendererLog(level: string, message: string): Promise<void>;
   openLogDir(): Promise<void>;
+
+  // Usage History
+  getUsageHistory(days?: number): Promise<Array<{ date: string; email: string; plan_used: number; plan_limit: number; on_demand_used: number; on_demand_limit: number; account_status: string }>>;
+
+  // Tags
+  getAllTags(): Promise<string[]>;
+
+  // Report
+  exportCSVReport(): Promise<{ success: boolean; count?: number; filePath?: string }>;
+
+  // Webhook
+  testWebhook(settings: { webhookEnabled: boolean; webhookUrl: string; webhookType: string }): Promise<{ success: boolean; error?: string; status?: number }>;
 
   // Updater
   checkForUpdate(): Promise<any>;

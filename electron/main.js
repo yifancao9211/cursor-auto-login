@@ -11,11 +11,12 @@ import { machineIdService } from "./services/machine-id.js";
 import { tokenExchange } from "./services/token-exchange.js";
 import { updater } from "./services/updater.js";
 import { logger } from "./services/logger.js";
-import { isTokenExpired, hasValidCredentials } from "./services/auth-utils.js";
+import { hasValidCredentials } from "./services/auth-utils.js";
 import { trayService } from "./services/tray.js";
 import { dispatchWebhook, WEBHOOK_EVENTS } from "./services/webhook.js";
 import { generateCSV } from "./services/report.js";
-import { USAGE_HISTORY_SCHEMA, SNAPSHOT_UPSERT_SQL } from "./services/usage-history.js";
+
+const DEFAULT_PASSWORD = "abcd@1234";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
@@ -94,15 +95,18 @@ app.on("window-all-closed", () => {
 });
 
 
+let _cachedWebhookSettings = {};
+
+function setWebhookSettings(settings) {
+  _cachedWebhookSettings = {
+    webhookEnabled: settings.webhookEnabled || false,
+    webhookUrl: settings.webhookUrl || "",
+    webhookType: settings.webhookType || "discord",
+  };
+}
+
 function getWebhookSettings() {
-  try {
-    const raw = mainWindow?.webContents?.executeJavaScript("localStorage.getItem('cam-settings')");
-    if (raw) {
-      const s = JSON.parse(raw);
-      return { webhookEnabled: s.webhookEnabled, webhookUrl: s.webhookUrl, webhookType: s.webhookType };
-    }
-  } catch {}
-  return {};
+  return _cachedWebhookSettings;
 }
 
 function sendToRenderer(channel, data) {
@@ -407,25 +411,13 @@ async function runRetryFailed() {
   sendToRenderer("retryFailed:start", { count: emails.length });
 
   try {
-    const DEFAULT_PASSWORD = "abcd@1234";
     const results = await loginService.batchLogin(emails, DEFAULT_PASSWORD, false, (progress) => {
       sendToRenderer("login:progress", progress);
     });
 
     let success = 0;
     for (const r of results) {
-      if (r.success && r.token) {
-        const data = { email: r.email, token: r.token, account_status: "active", token_valid: 1 };
-        if (r.accessToken) data.access_token = r.accessToken;
-        if (r.refreshToken) data.refresh_token = r.refreshToken;
-        accountDb.upsert(data);
-        // 登录成功后检测管理员角色
-        detectAdminRole({ email: r.email, token: r.token }).catch(() => {});
-        success++;
-      } else {
-        // 登录失败，标记为 failed
-        accountDb.upsert({ email: r.email, account_status: "failed", token_valid: 0 });
-      }
+      if (saveLoginResult(r)) success++;
     }
 
     console.log(`[retry-failed] Done: ${success}/${emails.length} success`);
@@ -515,13 +507,8 @@ async function runAutoCheck() {
 
   console.log(`[auto-check] Done. Admin covered: ${teamSpendCovered.size}, individual: ${results.filter(r => r.success).length} ok, ${results.filter(r => !r.success).length} failed`);
 
-  // Record usage snapshots for trend charts
   try {
-    const today = new Date().toISOString().slice(0, 10);
-    const allAccounts = accountDb.listAll();
-    const stmt = db => db.prepare("INSERT OR REPLACE INTO usage_history (date, email, plan_used, plan_limit, on_demand_used, on_demand_limit, account_status) VALUES (?, ?, ?, ?, ?, ?, ?)");
-    // Use accountDb's internal db via a new method
-    accountDb.recordSnapshots(today, allAccounts);
+    accountDb.recordSnapshots(new Date().toISOString().slice(0, 10), accountDb.listAll());
   } catch (e) {
     console.error("[auto-check] Failed to record usage snapshots:", e.message);
   }
@@ -626,7 +613,20 @@ async function tryRefreshTokenAndCookie(acc, update) {
   return true;
 }
 
-// isTokenExpired and hasValidCredentials imported from auth-utils.js
+// hasValidCredentials imported from auth-utils.js
+
+function saveLoginResult(r) {
+  if (r.success && r.token) {
+    const data = { email: r.email, token: r.token, account_status: "active", token_valid: 1 };
+    if (r.accessToken) data.access_token = r.accessToken;
+    if (r.refreshToken) data.refresh_token = r.refreshToken;
+    accountDb.upsert(data);
+    detectAdminRole({ email: r.email, token: r.token }).catch(() => {});
+    return true;
+  }
+  accountDb.upsert({ email: r.email, account_status: "failed", token_valid: 0 });
+  return false;
+}
 
 async function checkSingleAccount(acc) {
   const update = { email: acc.email };
@@ -805,24 +805,12 @@ async function discoverOrgMembers(accounts) {
     console.log(`[org-discovery] Auto-login ${loginEmails.length} accounts (new/failed without token)...`);
     sendToRenderer("org:autoLoginStart", { count: loginEmails.length });
     try {
-      const DEFAULT_PASSWORD = "abcd@1234";
       const results = await loginService.batchLogin(loginEmails, DEFAULT_PASSWORD, false, (progress) => {
         sendToRenderer("login:progress", progress);
       });
       let loginSuccess = 0;
       for (const r of results) {
-        if (r.success && r.token) {
-          const data = { email: r.email, token: r.token, account_status: "active", token_valid: 1 };
-          if (r.accessToken) data.access_token = r.accessToken;
-          if (r.refreshToken) data.refresh_token = r.refreshToken;
-          accountDb.upsert(data);
-          // 登录成功后检测管理员角色
-          detectAdminRole({ email: r.email, token: r.token }).catch(() => {});
-          loginSuccess++;
-        } else {
-          // 登录失败，标记为 failed
-          accountDb.upsert({ email: r.email, account_status: "failed", token_valid: 0 });
-        }
+        if (saveLoginResult(r)) loginSuccess++;
       }
       console.log(`[org-discovery] Auto-login done: ${loginSuccess}/${loginEmails.length} success`);
       sendToRenderer("org:autoLoginDone", { total: loginEmails.length, success: loginSuccess });
@@ -991,6 +979,10 @@ function registerIpcHandlers() {
     if (settings.autoCheckMinutes !== undefined) {
       autoCheckIntervalMs = Math.max(5, settings.autoCheckMinutes) * 60 * 1000;
       startAutoCheck();
+    }
+    
+    if (settings.webhookEnabled !== undefined || settings.webhookUrl !== undefined) {
+      setWebhookSettings(settings);
     }
     
     startRetryFailedTimer();

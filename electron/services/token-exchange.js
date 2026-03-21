@@ -1,22 +1,5 @@
 import https from "node:https";
-import crypto from "node:crypto";
-
-/**
- * Cookie → accessToken 纯 HTTP 转换服务
- *
- * 流程:
- * 1. 生成 PKCE (verifier, challenge, uuid)
- * 2. GET cursor.com/loginDeepControl (跟踪重定向，收集 cookies)
- * 3. POST cursor.com/api/auth/loginDeepCallbackControl (模拟 "Yes, Log In")
- * 4. 轮询 api2.cursor.sh/auth/poll 获取 accessToken + refreshToken
- */
-
-function generatePKCE() {
-  const verifier = crypto.randomBytes(32).toString("base64url");
-  const challenge = crypto.createHash("sha256").update(verifier).digest("base64url");
-  const uuid = crypto.randomUUID();
-  return { verifier, challenge, uuid };
-}
+import { generatePKCE } from "./auth-utils.js";
 
 const MAX_BODY_SIZE = 2 * 1024 * 1024; // 2MB
 

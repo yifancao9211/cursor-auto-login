@@ -107,7 +107,7 @@ watch(() => form.value.orgDiscoveryEnabled, syncScheduleToMain);
 watch(() => form.value.retryFailedTime, syncScheduleToMain);
 watch(() => form.value.enableLogging, syncScheduleToMain);
 
-function syncWebhookSettings() {
+async function syncWebhookSettings() {
   if (!ready.value) return;
   Object.assign(store.settings, {
     webhookEnabled: form.value.webhookEnabled,
@@ -115,6 +115,11 @@ function syncWebhookSettings() {
     webhookType: form.value.webhookType,
   });
   store.saveSettings();
+  await window.api.updateScheduleSettings({
+    webhookEnabled: form.value.webhookEnabled,
+    webhookUrl: form.value.webhookUrl,
+    webhookType: form.value.webhookType,
+  });
 }
 watch(() => form.value.webhookEnabled, syncWebhookSettings);
 watch(() => form.value.webhookUrl, syncWebhookSettings);
