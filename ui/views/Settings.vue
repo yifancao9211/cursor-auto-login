@@ -439,17 +439,22 @@ const updateLabel = computed(() => {
                   <input v-model="form.feishuAppSecret" type="password" class="bg-white border border-apple-border rounded-lg px-3 py-2 text-sm outline-none focus:border-apple-accent font-mono" placeholder="••••••••" />
                 </div>
               </div>
-              <div class="flex items-center gap-3">
-                <div class="flex-1 flex flex-col gap-1">
-                  <span class="text-xs font-bold text-apple-textMuted">目标群聊</span>
-                  <select v-model="form.feishuChatId" class="bg-white border border-apple-border rounded-lg px-3 py-2 text-sm outline-none focus:border-apple-accent" :disabled="feishuChats.length === 0">
-                    <option value="" disabled>{{ feishuChats.length === 0 ? '请先获取群列表' : '选择群聊...' }}</option>
+              <div class="flex flex-col gap-1">
+                <span class="text-xs font-bold text-apple-textMuted">推送目标</span>
+                <div class="flex items-center gap-2">
+                  <select v-model="form.feishuChatId" class="flex-1 bg-white border border-apple-border rounded-lg px-3 py-2 text-sm outline-none focus:border-apple-accent">
+                    <option value="" disabled>选择群聊或输入个人 ID...</option>
                     <option v-for="c in feishuChats" :key="c.id" :value="c.id">{{ c.name }}</option>
                   </select>
+                  <button class="apple-btn-secondary text-xs px-3" @click="loadFeishuChats" :disabled="loadingChats || !form.feishuAppId || !form.feishuAppSecret">
+                    {{ loadingChats ? '...' : '拉取群' }}
+                  </button>
                 </div>
-                <button class="apple-btn-secondary text-xs px-3 mt-4" @click="loadFeishuChats" :disabled="loadingChats || !form.feishuAppId || !form.feishuAppSecret">
-                  {{ loadingChats ? '...' : '获取群列表' }}
-                </button>
+                <div class="flex items-center gap-2 mt-1">
+                  <span class="text-[10px] text-apple-textMuted">或直接输入：</span>
+                  <input v-model="form.feishuChatId" class="flex-1 bg-white border border-apple-border rounded-lg px-2 py-1.5 text-xs outline-none focus:border-apple-accent font-mono" placeholder="ou_xxx (个人) 或 oc_xxx (群)" />
+                </div>
+                <p class="text-[10px] text-apple-textMuted mt-0.5">ou_ 开头推送给个人，oc_ 开头推送到群聊</p>
               </div>
             </div>
           </template>
