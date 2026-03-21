@@ -8,6 +8,13 @@ export function initUpdater(onEvent) {
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
 
+  // 手动配置更新地址，避免因为 CI 加上 --publish never 选项导致 app-update.yml 未生成的问题
+  autoUpdater.setFeedURL({
+    provider: "github",
+    owner: "yifancao9211",
+    repo: "cursor-auto-login",
+  });
+
   autoUpdater.on("checking-for-update", () => onEvent("checking"));
   autoUpdater.on("update-available", (info) => onEvent("available", info));
   autoUpdater.on("update-not-available", () => onEvent("not-available"));
