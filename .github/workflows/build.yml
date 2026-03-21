@@ -108,7 +108,14 @@ jobs:
           DMG_DIR=$(mktemp -d)
           cp -R "$APP_PATH" "$DMG_DIR/"
           ln -s /Applications "$DMG_DIR/Applications"
-          hdiutil create -volname "${APP_NAME}" -srcfolder "$DMG_DIR" -ov -format UDZO "release/${APP_NAME}-${VERSION}-arm64.dmg"
+          sync
+          sleep 2
+          # hdiutil may fail with "Resource busy" on CI, retry up to 3 times
+          for i in 1 2 3; do
+            hdiutil create -volname "${APP_NAME}" -srcfolder "$DMG_DIR" -ov -format UDZO "release/${APP_NAME}-${VERSION}-arm64.dmg" && break
+            echo "hdiutil attempt $i failed, retrying in 5s..."
+            sleep 5
+          done
           rm -rf "$DMG_DIR"
 
           # Generate latest-mac.yml for electron-updater
