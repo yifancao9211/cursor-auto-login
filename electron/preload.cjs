@@ -14,6 +14,8 @@ contextBridge.exposeInMainWorld("api", {
   listAccountsByStatus: (status) => ipcRenderer.invoke("accounts:listByStatus", status),
   upsertAccount: (account) => ipcRenderer.invoke("accounts:upsert", account),
   removeAccounts: (emails) => ipcRenderer.invoke("accounts:remove", emails),
+  disableAccounts: (emails) => ipcRenderer.invoke("accounts:disable", emails),
+  activateAccounts: (emails) => ipcRenderer.invoke("accounts:activate", emails),
   importTokensJson: (data) => ipcRenderer.invoke("accounts:importTokensJson", data),
   exportTokensJson: () => ipcRenderer.invoke("accounts:exportTokensJson"),
   exportFull: () => ipcRenderer.invoke("accounts:exportFull"),

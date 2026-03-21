@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from "vue";
 import { useAppStore } from "../stores/app.js";
 import SwitchDialog from "../components/SwitchDialog.vue";
-import { Download, RefreshCw, Search, Trash2, Copy, CheckCircle2, AlertCircle, ArrowRightCircle, Check, X, Fingerprint, Building2, LayoutGrid, LayoutList, ArrowDownUp, Key, Upload } from "lucide-vue-next";
+import { Download, RefreshCw, Search, Trash2, Copy, CheckCircle2, AlertCircle, ArrowRightCircle, Check, X, Fingerprint, Building2, LayoutGrid, LayoutList, ArrowDownUp, Key, Upload, Ban } from "lucide-vue-next";
 
 const store = useAppStore();
 const multipleSelection = ref(new Set());
@@ -135,6 +135,20 @@ async function handleDeleteBatch() {
   await store.loadAccounts();
 }
 
+async function handleDisableSingle(email) {
+  await window.api.disableAccounts([email]);
+  await store.loadAccounts();
+}
+
+async function handleDisableBatch() {
+  if (multipleSelection.value.size === 0) return;
+  if (!confirm(`确定停用选中的 ${multipleSelection.value.size} 个账号？\n停用后将不再参与自动巡检。`)) return;
+  const emails = [...multipleSelection.value];
+  await window.api.disableAccounts(emails);
+  multipleSelection.value = new Set();
+  await store.loadAccounts();
+}
+
 // Add/Import moved to Onboarding page
 
 function parseJwt(token) {
@@ -239,9 +253,14 @@ onMounted(async () => {
             placeholder="搜索邮箱..." 
           />
         </div>
-        <button v-if="multipleSelection.size > 0" class="apple-btn bg-apple-danger text-white hover:bg-red-600 shadow-sm transition-all" @click="handleDeleteBatch">
-          <Trash2 class="w-4 h-4 mr-1.5" /> 删除 ({{ multipleSelection.size }})
-        </button>
+        <div class="flex items-center gap-2">
+          <button v-if="multipleSelection.size > 0" class="apple-btn bg-apple-warning/90 text-white hover:bg-orange-500 shadow-sm transition-all" @click="handleDisableBatch">
+            <Ban class="w-4 h-4 mr-1.5" /> 停用 ({{ multipleSelection.size }})
+          </button>
+          <button v-if="multipleSelection.size > 0" class="apple-btn bg-apple-danger text-white hover:bg-red-600 shadow-sm transition-all" @click="handleDeleteBatch">
+            <Trash2 class="w-4 h-4 mr-1.5" /> 删除 ({{ multipleSelection.size }})
+          </button>
+        </div>
       </div>
     </div>
 
@@ -394,6 +413,14 @@ onMounted(async () => {
               >
                 <RefreshCw :class="['w-3 h-3', { 'animate-spin': refreshingSingle.has(row.email) }]" />
                 {{ refreshingSingle.has(row.email) ? '刷新中...' : '刷新' }}
+              </button>
+              <button 
+                class="text-xs font-semibold text-apple-textMuted hover:text-apple-danger hover:bg-apple-danger/10 px-2.5 py-1.5 rounded-md transition-colors flex items-center gap-1" 
+                @click.stop="handleDisableSingle(row.email)"
+                title="停用此账号"
+              >
+                <Ban class="w-3 h-3" />
+                停用
               </button>
             </div>
             <button 

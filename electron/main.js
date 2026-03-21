@@ -579,6 +579,42 @@ async function tryRefreshTokenAndCookie(acc, update) {
   return true;
 }
 
+/**
+ * 检查 JWT token 是否已过期
+ * @param {string} token - JWT token 或 URL-encoded cookie (userId::jwt)
+ * @returns {boolean} 是否已过期（无法解析时返回 false，保守处理不标记过期）
+ */
+function isTokenExpired(token) {
+  if (!token) return true;
+  try {
+    // 如果是 cookie 格式 (userId::jwt)，提取 JWT 部分
+    let jwt = token;
+    const decoded = decodeURIComponent(token);
+    const idx = decoded.indexOf("::");
+    if (idx > 0) jwt = decoded.substring(idx + 2);
+    // 解析 JWT payload
+    const segs = jwt.split(".");
+    if (segs.length !== 3) return false; // 无法解析，保守处理
+    let b64 = segs[1].replace(/-/g, "+").replace(/_/g, "/");
+    while (b64.length % 4) b64 += "=";
+    const payload = JSON.parse(Buffer.from(b64, "base64").toString());
+    if (!payload.exp) return false; // 没有过期时间，保守处理
+    return Date.now() / 1000 > payload.exp;
+  } catch {
+    return false; // 解析失败，保守不标记过期
+  }
+}
+
+/**
+ * 检查账号是否有未过期的凭证
+ */
+function hasValidCredentials(acc) {
+  if (acc.token && !isTokenExpired(acc.token)) return true;
+  if (acc.access_token && !isTokenExpired(acc.access_token)) return true;
+  if (acc.refresh_token) return true; // refresh_token 存在即可用于刷新
+  return false;
+}
+
 async function checkSingleAccount(acc) {
   const update = { email: acc.email };
 
@@ -640,19 +676,19 @@ async function checkSingleAccount(acc) {
     update.account_status = "active";
     if (usage.authMethod) console.log(`[check] ${acc.email}: usage via ${usage.authMethod}`);
   } else if (usage.status === 401 || usage.status === 403 || usage.status === 307) {
-    // 刷新后仍然 401，才真正标记为 failed
-    console.log(`[check] ${acc.email}: 认证失败 (${usage.status})，标记为失效`);
-    update.token_valid = 0;
-    update.account_status = acc.account_status === "new" ? "new" : (acc.account_status === "disabled" ? "disabled" : "failed");
-  } else {
-    // 网络错误/超时/服务器错误：保持原有状态，不轻易标记失效
-    console.log(`[check] ${acc.email}: API 返回 ${usage.status}，保持现有状态`);
-    if (acc.account_status === "active" && (acc.token || acc.access_token)) {
-      // 已有 token 的 active 账号：保持不变
+    // 认证相关错误：只有在 token 确实已过期 且 刷新也失败时，才标记为 failed
+    if (hasValidCredentials(acc)) {
+      // 有未过期的 token/cookie/refresh_token → 不自动标记 failed（可能是服务端临时问题）
+      console.log(`[check] ${acc.email}: API 返回 ${usage.status}，但凭证未过期，保持现有状态`);
     } else {
+      // 所有凭证都已过期，才标记为 failed
+      console.log(`[check] ${acc.email}: 认证失败 (${usage.status}) 且凭证已过期，标记为失效`);
       update.token_valid = 0;
       update.account_status = acc.account_status === "new" ? "new" : (acc.account_status === "disabled" ? "disabled" : "failed");
     }
+  } else {
+    // 网络错误/超时/服务器错误(500/502/503/504)：保持原有状态，绝不标记失效
+    console.log(`[check] ${acc.email}: API 返回 ${usage.status}，保持现有状态`);
   }
 
   if (stripe.status === 200 && stripe.data) {
@@ -798,6 +834,26 @@ function registerIpcHandlers() {
   ipcMain.handle("accounts:listByStatus", (_, status) => accountDb.listByStatus(status));
   ipcMain.handle("accounts:upsert", (_, account) => accountDb.upsert(account));
   ipcMain.handle("accounts:remove", (_, emails) => accountDb.remove(emails));
+
+  // 手动停用账号
+  ipcMain.handle("accounts:disable", (_, emails) => {
+    for (const email of emails) {
+      accountDb.upsert({ email, account_status: "disabled", token_valid: 0 });
+    }
+    console.log(`[accounts] Disabled ${emails.length} accounts: ${emails.join(", ")}`);
+    return { success: true, count: emails.length };
+  });
+
+  // 手动恢复账号为 active
+  ipcMain.handle("accounts:activate", (_, emails) => {
+    for (const email of emails) {
+      const acc = accountDb.listAll().find(a => a.email === email);
+      const hasToken = acc && (acc.token || acc.access_token);
+      accountDb.upsert({ email, account_status: "active", token_valid: hasToken ? 1 : 0 });
+    }
+    console.log(`[accounts] Activated ${emails.length} accounts: ${emails.join(", ")}`);
+    return { success: true, count: emails.length };
+  });
   ipcMain.handle("accounts:importTokensJson", (_, data) => accountDb.importFromTokensJson(data));
   ipcMain.handle("accounts:exportTokensJson", () => accountDb.exportToTokensJson());
 
