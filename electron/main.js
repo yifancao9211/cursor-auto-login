@@ -80,6 +80,20 @@ app.whenReady().then(() => {
     onRefresh: () => runQuickRefresh(),
   });
 
+  // Auto-import current Cursor IDE account if not in DB
+  try {
+    const auth = cursorDb.readAuth();
+    if (auth.cachedEmail && !auth.error && !accountDb.exists(auth.cachedEmail)) {
+      const importData = { email: auth.cachedEmail, account_status: "active", token_valid: 1 };
+      if (auth.accessToken) importData.access_token = auth.accessToken;
+      if (auth.refreshToken) importData.refresh_token = auth.refreshToken;
+      accountDb.upsert(importData);
+      console.log(`[auto-import] Current IDE account ${auth.cachedEmail} imported to DB`);
+    }
+  } catch (e) {
+    console.error("[auto-import] Failed:", e.message);
+  }
+
   setTimeout(() => runAutoCheck(), 10000);
 
   app.on("activate", () => {
