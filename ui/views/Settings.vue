@@ -1,7 +1,7 @@
 <script setup>
-import { ref, watch, onMounted, onUnmounted, computed, nextTick, inject } from "vue";
+import { ref, watch, onMounted, computed, nextTick, inject } from "vue";
 import { useAppStore } from "../stores/app.js";
-import { KeyRound, Layers, HardDrive, Cpu, ShieldCheck, Activity, Timer, PlayCircle, Download, RefreshCw, CheckCircle2, AlertCircle, Users, RotateCcw, Clock, Fingerprint, Eye, EyeOff } from "lucide-vue-next";
+import { KeyRound, Layers, HardDrive, Cpu, ShieldCheck, Activity, Timer, PlayCircle, Download, RefreshCw, Users, RotateCcw, Clock, Fingerprint, Eye, EyeOff } from "lucide-vue-next";
 
 const toast = inject("toast");
 
@@ -30,17 +30,8 @@ const ready = ref(false);
 
 const runningAutoCheck = ref(false);
 const appVersion = ref("...");
-const updateStatus = ref(null); // null | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error'
-const updateInfo = ref({});
-let cleanupUpdateListener = null;
 const machineIds = ref(null);
 const showFullIds = ref(false);
-
-/** Electron 在 mac 上 UA 含 Macintosh；用于旧版未带 manualDownload 时的兜底 */
-const isMacClient = computed(() => {
-  const ua = navigator.userAgent;
-  return ua.includes("Mac") && !ua.includes("Windows");
-});
 
 const dbPathDisplay = computed(() => {
   const ua = navigator.userAgent.toLowerCase();
@@ -85,18 +76,9 @@ onMounted(async () => {
   // 获取版本号和机器码
   appVersion.value = await window.api.getAppVersion();
   await loadMachineIds();
-  // 监听更新状态
-  cleanupUpdateListener = window.api.onUpdateStatus((data) => {
-    updateStatus.value = data.status;
-    updateInfo.value = data;
-  });
   // 等 nextTick 后再允许 watch 同步到 main，避免初始赋值触发多余调用
   await nextTick();
   ready.value = true;
-});
-
-onUnmounted(() => {
-  if (cleanupUpdateListener) cleanupUpdateListener();
 });
 
 // 即时持久化 toggle 开关和时间设置（无需手动点保存）
@@ -139,6 +121,8 @@ async function syncWebhookSettings() {
 watch(() => form.value.webhookEnabled, syncWebhookSettings);
 watch(() => form.value.webhookUrl, syncWebhookSettings);
 watch(() => form.value.webhookType, syncWebhookSettings);
+watch(() => form.value.feishuAppId, syncWebhookSettings);
+watch(() => form.value.feishuAppSecret, syncWebhookSettings);
 watch(() => form.value.feishuChatId, syncWebhookSettings);
 
 async function handleSave() {
@@ -185,28 +169,6 @@ const lastCheckLabel = computed(() => {
   return new Date(store.autoCheckStatus.lastCheckTime).toLocaleString();
 });
 
-async function checkUpdate() {
-  updateStatus.value = 'checking';
-  await window.api.checkForUpdate();
-}
-
-async function installUpdate() {
-  const r = await window.api.installUpdate();
-  if (r?.skipped) {
-    toast.value?.show("macOS 请从 GitHub 下载 DMG 安装", "warning");
-  }
-}
-
-async function openReleaseDownload() {
-  const v = updateInfo.value?.version;
-  if (!v) {
-    await window.api.openReleasePage(appVersion.value);
-    return;
-  }
-  const res = await window.api.openReleasePage(v);
-  if (!res?.ok) toast.value?.show("无法打开下载页", "error");
-}
-
 async function testWebhook() {
   try {
     const settings = {
@@ -248,27 +210,23 @@ async function exportReport() {
   }
 }
 
-const updateLabel = computed(() => {
-  switch (updateStatus.value) {
-    case 'checking': return '检查中...';
-    case 'available':
-      return updateInfo.value.manualDownload
-        ? `发现新版本 v${updateInfo.value.version}（macOS 请下载 DMG 安装）`
-        : `发现新版本 v${updateInfo.value.version}`;
-    case 'downloading': return `下载中 ${updateInfo.value.percent || 0}%`;
-    case 'downloaded': return `v${updateInfo.value.version} 已就绪`;
-    case 'not-available': return '已是最新版本';
-    case 'error': return `更新失败: ${updateInfo.value.message}`;
-    default: return null;
-  }
-});
+const pushSectionRef = ref(null);
+
+function scrollToPushSection() {
+  pushSectionRef.value?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
 </script>
 
 <template>
   <div class="flex flex-col gap-6 max-w-3xl mx-auto pb-10">
     <!-- Header -->
-    <div class="flex-shrink-0 no-drag mb-2">
+    <div class="flex-shrink-0 no-drag mb-2 space-y-2">
       <h1 class="text-3xl font-black tracking-tight text-apple-text mb-1">全局设置 <span class="text-apple-textMuted font-medium tracking-normal text-2xl">Settings</span></h1>
+      <p class="text-sm text-apple-textMuted leading-relaxed">
+        左侧栏点「<span class="font-semibold text-apple-text">设置</span>」即本页。飞书 / Discord 等在下方
+        <button type="button" class="text-apple-accent font-semibold hover:underline mx-0.5" @click="scrollToPushSection">「消息推送」</button>
+        ，需先打开「启用推送通知」才会出现渠道与 App ID 等表单项。
+      </p>
     </div>
 
     <!-- Batch Login Settings -->
@@ -415,12 +373,19 @@ const updateLabel = computed(() => {
     </div>
 
     <!-- Notification Push -->
-    <div class="apple-glass rounded-2xl overflow-hidden flex flex-col no-drag">
+    <div
+      id="settings-push"
+      ref="pushSectionRef"
+      class="apple-glass rounded-2xl overflow-hidden flex flex-col no-drag scroll-mt-24"
+    >
       <div class="px-6 py-4 flex items-center gap-3 bg-white/40 border-b border-apple-border/50">
         <div class="w-8 h-8 rounded-lg bg-cyan-500/10 flex items-center justify-center text-cyan-600">
           <Activity class="w-4 h-4" />
         </div>
-        <h3 class="font-bold text-apple-text">消息推送</h3>
+        <div class="min-w-0">
+          <h3 class="font-bold text-apple-text">消息推送</h3>
+          <p class="text-[11px] text-apple-textMuted mt-0.5">飞书 App / 飞书 Webhook · Discord · 企业微信</p>
+        </div>
       </div>
       <div class="p-6 flex flex-col gap-4 bg-white/20">
         <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -432,6 +397,12 @@ const updateLabel = computed(() => {
             <input type="checkbox" v-model="form.webhookEnabled" class="sr-only peer">
             <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-cyan-300 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-cyan-500"></div>
           </label>
+        </div>
+        <div
+          v-if="!form.webhookEnabled"
+          class="rounded-xl border border-orange-500/30 bg-orange-500/10 px-4 py-3 text-xs text-apple-text"
+        >
+          <span class="font-bold text-orange-700">飞书配置在这里：</span>请先打开上方「启用推送通知」开关，即可选择「飞书 App」并填写 App ID / Secret / 推送目标。
         </div>
         <template v-if="form.webhookEnabled">
           <div class="h-px w-full bg-apple-border/50"></div>
@@ -592,7 +563,7 @@ const updateLabel = computed(() => {
       </div>
     </div>
 
-    <!-- About App + Update -->
+    <!-- About App -->
     <div class="mt-4 flex flex-col items-center justify-center text-center gap-2 opacity-60 hover:opacity-100 transition-opacity">
       <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-gray-100 to-gray-300 shadow-sm flex items-center justify-center text-gray-700 border border-white/50">
         <ShieldCheck class="w-6 h-6" />
@@ -601,55 +572,8 @@ const updateLabel = computed(() => {
         <h4 class="font-bold tracking-tight text-apple-text">Cursor Account Manager</h4>
         <p class="text-[10px] text-apple-textMuted uppercase tracking-widest mt-0.5">Version {{ appVersion }}</p>
       </div>
-
-      <!-- Update Status -->
-      <div class="flex flex-col items-center gap-2 mt-2">
-        <!-- Progress bar -->
-        <div v-if="updateStatus === 'downloading'" class="w-48 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-          <div class="h-full bg-gradient-to-r from-purple-500 to-indigo-500 rounded-full transition-all duration-300" :style="{ width: (updateInfo.percent || 0) + '%' }"></div>
-        </div>
-
-        <!-- Status label -->
-        <div v-if="updateLabel" class="flex items-center gap-1.5 text-xs font-medium" :class="{
-          'text-apple-textMuted': updateStatus === 'checking' || updateStatus === 'not-available',
-          'text-purple-600': updateStatus === 'available' || updateStatus === 'downloading',
-          'text-apple-success': updateStatus === 'downloaded',
-          'text-apple-danger': updateStatus === 'error',
-        }">
-          <RefreshCw v-if="updateStatus === 'checking'" class="w-3.5 h-3.5 animate-spin" />
-          <Download v-else-if="updateStatus === 'available' || updateStatus === 'downloading'" class="w-3.5 h-3.5" />
-          <CheckCircle2 v-else-if="updateStatus === 'downloaded'" class="w-3.5 h-3.5" />
-          <AlertCircle v-else-if="updateStatus === 'error'" class="w-3.5 h-3.5" />
-          {{ updateLabel }}
-        </div>
-
-        <!-- Action buttons -->
-        <div class="flex flex-wrap items-center justify-center gap-2">
-          <button
-            v-if="updateStatus !== 'downloading' && updateStatus !== 'downloaded'"
-            class="text-xs font-bold text-apple-accent hover:text-blue-600 transition-colors px-3 py-1 rounded-lg hover:bg-blue-50"
-            :disabled="updateStatus === 'checking'"
-            @click="checkUpdate"
-          >检查更新</button>
-          <button
-            v-if="updateStatus === 'available' && updateInfo.manualDownload"
-            class="text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 transition-colors px-4 py-1.5 rounded-lg shadow-sm"
-            @click="openReleaseDownload"
-          >打开 GitHub 下载</button>
-          <button
-            v-if="updateStatus === 'error' && (updateInfo.manualDownload || isMacClient)"
-            class="text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 transition-colors px-4 py-1.5 rounded-lg shadow-sm"
-            @click="openReleaseDownload"
-          >打开 GitHub 下载</button>
-          <button
-            v-if="updateStatus === 'downloaded'"
-            class="text-xs font-bold text-white bg-apple-success hover:bg-green-600 transition-colors px-4 py-1.5 rounded-lg shadow-sm"
-            @click="installUpdate"
-          >安装并重启</button>
-        </div>
-      </div>
-
-      <p class="text-xs text-apple-textMuted max-w-xs mt-2 font-medium">设计用于无缝管理 Cursor IDE 多账号配额与无痛切换体验。</p>
+      <p class="text-xs text-apple-textMuted max-w-xs mt-1 font-medium">升级请前往 GitHub Releases 手动下载安装包。应用内已关闭自动检查与在线更新。</p>
+      <p class="text-xs text-apple-textMuted max-w-xs font-medium">设计用于无缝管理 Cursor IDE 多账号配额与无痛切换体验。</p>
     </div>
   </div>
 </template>

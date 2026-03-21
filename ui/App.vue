@@ -79,7 +79,7 @@ const tabs = [
         </div>
       </div>
 
-      <nav class="flex-1 flex flex-col gap-1 no-drag">
+      <nav class="flex-1 flex flex-col gap-1 no-drag min-h-0 overflow-y-auto">
         <button
           v-for="tab in tabs"
           :key="tab.key"
@@ -106,7 +106,7 @@ const tabs = [
           {{ store.settings.darkMode ? '浅色模式' : '深色模式' }}
         </button>
         <div class="px-3 py-3 rounded-xl bg-black/5 text-xs text-apple-textMuted flex items-center justify-between">
-          <span>v3.3.3</span>
+          <span>v3.3.4</span>
           <div class="w-2 h-2 rounded-full bg-apple-success shadow-[0_0_8px_rgba(52,199,89,0.6)]"></div>
         </div>
       </div>

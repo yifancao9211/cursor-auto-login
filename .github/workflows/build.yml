@@ -72,18 +72,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Create app-update.yml
-        if: steps.check.outputs.exists == 'false'
-        run: |
-          APP_PATH=$(find release/mac-arm64 -name '*.app' -maxdepth 1 | head -1)
-          cat > "$APP_PATH/Contents/Resources/app-update.yml" << EOF
-          provider: github
-          owner: yifancao9211
-          repo: cursor-auto-login
-          updaterCacheDirName: cursor-account-manager
-          EOF
-          echo "Created app-update.yml in $APP_PATH/Contents/Resources/"
-
       - name: Ad-hoc codesign
         if: steps.check.outputs.exists == 'false'
         run: |
@@ -119,21 +107,7 @@ jobs:
           done
           rm -rf "$DMG_DIR"
 
-          # Generate latest-mac.yml for electron-updater
-          ZIP_SIZE=$(stat -f%z "release/${APP_NAME}-${VERSION}-arm64-mac.zip")
-          ZIP_SHA512=$(shasum -a 512 "release/${APP_NAME}-${VERSION}-arm64-mac.zip" | awk '{print $1}' | xxd -r -p | base64)
-          cat > release/latest-mac.yml << EOF
-          version: ${VERSION}
-          files:
-            - url: ${APP_NAME}-${VERSION}-arm64-mac.zip
-              sha512: ${ZIP_SHA512}
-              size: ${ZIP_SIZE}
-          path: ${APP_NAME}-${VERSION}-arm64-mac.zip
-          sha512: ${ZIP_SHA512}
-          releaseDate: $(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
-          EOF
-
-          ls -la release/*.dmg release/*.zip release/*.yml
+          ls -la release/*.dmg release/*.zip
 
       - name: Create tag
         if: steps.check.outputs.exists == 'false'
@@ -147,7 +121,7 @@ jobs:
         if: steps.check.outputs.exists == 'false'
         run: |
           gh release create "${{ steps.pkg.outputs.tag }}" \
-            release/*.dmg release/*.zip release/*.yml \
+            release/*.dmg release/*.zip \
             --title "${{ steps.pkg.outputs.tag }}" \
             --generate-notes
         env:

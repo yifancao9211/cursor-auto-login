@@ -169,11 +169,7 @@ interface ElectronAPI {
   // Webhook
   testWebhook(settings: { webhookEnabled: boolean; webhookUrl: string; webhookType: string }): Promise<{ success: boolean; error?: string; status?: number }>;
 
-  // Updater
-  checkForUpdate(): Promise<any>;
-  installUpdate(): Promise<{ skipped?: boolean; reason?: string } | void>;
   getAppVersion(): Promise<string>;
-  openReleasePage(version: string): Promise<{ ok: boolean; error?: string }>;
 
   // Dialogs
   openFileDialog(options?: any): Promise<any>;
@@ -186,7 +182,6 @@ interface ElectronAPI {
   onAutoCheckFinished(callback: (data: any) => void): () => void;
   onOrgNewMembers(callback: (data: any) => void): () => void;
   onExchangeProgress(callback: (data: any) => void): () => void;
-  onUpdateStatus(callback: (data: any) => void): () => void;
   onLogEntry(callback: (entry: LogEntry) => void): () => void;
   onLogCleared(callback: () => void): () => void;
 }
