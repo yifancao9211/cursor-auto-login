@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { formatWebhookPayload, WEBHOOK_EVENTS } from "../electron/services/webhook.js";
 
 describe("formatWebhookPayload", () => {
@@ -46,23 +46,25 @@ describe("formatWebhookPayload", () => {
     expect(embed.embeds[0].title).toContain("Cursor");
   });
 
-  it("builds Feishu interactive card with colored header", () => {
+  it("builds Feishu card with colored header", () => {
     const { buildFeishuCard } = require("../electron/services/webhook.js");
     const payload = formatWebhookPayload(WEBHOOK_EVENTS.QUOTA_EXHAUSTED, { email: "test@t.com", balance: 0 });
     const card = buildFeishuCard(payload);
-    expect(card.msg_type).toBe("interactive");
-    expect(card.card.header.template).toBe("orange");
-    expect(card.card.header.title.content).toContain("⚠️");
+    expect(card.header.template).toBe("orange");
+    expect(card.header.title.content).toContain("⚠️");
+    expect(card.elements.length).toBeGreaterThan(0);
   });
 
-  it("builds Feishu auto_check_done card with stat columns", () => {
+  it("builds Feishu auto_check_done card with stat columns and health score", () => {
     const { buildFeishuCard } = require("../electron/services/webhook.js");
-    const payload = formatWebhookPayload(WEBHOOK_EVENTS.AUTO_CHECK_DONE, { total: 67, success: 65, failed: 2 });
+    const payload = formatWebhookPayload(WEBHOOK_EVENTS.AUTO_CHECK_DONE, { total: 67, success: 65, failed: 2, healthScore: 92, healthGrade: "A" });
     const card = buildFeishuCard(payload);
-    expect(card.card.header.template).toBe("blue");
-    const columnSet = card.card.elements.find(e => e.tag === "column_set");
+    expect(card.header.template).toBe("blue");
+    const columnSet = card.elements.find(e => e.tag === "column_set");
     expect(columnSet).toBeDefined();
     expect(columnSet.columns).toHaveLength(3);
+    const healthMd = card.elements.find(e => e.tag === "column_set" && JSON.stringify(e).includes("健康度"));
+    expect(healthMd).toBeDefined();
   });
 
   it("builds Feishu token_expired card with email list", () => {
@@ -71,8 +73,8 @@ describe("formatWebhookPayload", () => {
       count: 3, emails: ["a@t.com", "b@t.com", "c@t.com"]
     });
     const card = buildFeishuCard(payload);
-    expect(card.card.header.template).toBe("red");
-    const md = card.card.elements.find(e => e.tag === "markdown");
+    expect(card.header.template).toBe("red");
+    const md = card.elements.find(e => e.tag === "markdown");
     expect(md.content).toContain("a@t.com");
   });
 
@@ -80,8 +82,8 @@ describe("formatWebhookPayload", () => {
     const { buildFeishuCard } = require("../electron/services/webhook.js");
     const payload = formatWebhookPayload(WEBHOOK_EVENTS.ALL_EXHAUSTED, { totalAccounts: 20 });
     const card = buildFeishuCard(payload);
-    expect(card.card.header.template).toBe("red");
-    const urgent = card.card.elements.find(e => e.tag === "markdown" && e.content?.includes("尽快"));
+    expect(card.header.template).toBe("red");
+    const urgent = card.elements.find(e => e.tag === "markdown" && e.content?.includes("尽快"));
     expect(urgent).toBeDefined();
   });
 

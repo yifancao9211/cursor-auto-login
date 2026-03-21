@@ -126,6 +126,7 @@ contextBridge.exposeInMainWorld("api", {
   // Report
   exportCSVReport: () => ipcRenderer.invoke("report:exportCSV"),
 
-  // Webhook
+  // Webhook & Feishu
   testWebhook: (settings) => ipcRenderer.invoke("webhook:test", settings),
+  feishuListChats: (appId, appSecret) => ipcRenderer.invoke("feishu:listChats", appId, appSecret),
 });

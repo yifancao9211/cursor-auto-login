@@ -18,7 +18,13 @@ const form = ref({
   webhookEnabled: false,
   webhookUrl: "",
   webhookType: "discord",
+  feishuAppId: "",
+  feishuAppSecret: "",
+  feishuChatId: "",
 });
+
+const feishuChats = ref([]);
+const loadingChats = ref(false);
 
 const ready = ref(false);
 
@@ -66,6 +72,9 @@ onMounted(async () => {
     webhookEnabled: store.settings.webhookEnabled || false,
     webhookUrl: store.settings.webhookUrl || "",
     webhookType: store.settings.webhookType || "discord",
+    feishuAppId: store.settings.feishuAppId || "",
+    feishuAppSecret: store.settings.feishuAppSecret || "",
+    feishuChatId: store.settings.feishuChatId || "",
   };
   // 获取版本号和机器码
   appVersion.value = await window.api.getAppVersion();
@@ -109,21 +118,22 @@ watch(() => form.value.enableLogging, syncScheduleToMain);
 
 async function syncWebhookSettings() {
   if (!ready.value) return;
-  Object.assign(store.settings, {
+  const ws = {
     webhookEnabled: form.value.webhookEnabled,
     webhookUrl: form.value.webhookUrl,
     webhookType: form.value.webhookType,
-  });
+    feishuAppId: form.value.feishuAppId,
+    feishuAppSecret: form.value.feishuAppSecret,
+    feishuChatId: form.value.feishuChatId,
+  };
+  Object.assign(store.settings, ws);
   store.saveSettings();
-  await window.api.updateScheduleSettings({
-    webhookEnabled: form.value.webhookEnabled,
-    webhookUrl: form.value.webhookUrl,
-    webhookType: form.value.webhookType,
-  });
+  await window.api.updateScheduleSettings(ws);
 }
 watch(() => form.value.webhookEnabled, syncWebhookSettings);
 watch(() => form.value.webhookUrl, syncWebhookSettings);
 watch(() => form.value.webhookType, syncWebhookSettings);
+watch(() => form.value.feishuChatId, syncWebhookSettings);
 
 async function handleSave() {
   Object.assign(store.settings, form.value);
@@ -180,15 +190,34 @@ function installUpdate() {
 
 async function testWebhook() {
   try {
-    const result = await window.api.testWebhook({
+    const settings = {
       webhookEnabled: true,
-      webhookUrl: form.value.webhookUrl,
       webhookType: form.value.webhookType,
-    });
-    toast.value?.show(result?.success ? "Webhook 测试发送成功！" : "发送失败: " + (result?.error || result?.status), result?.success ? "success" : "error");
+      webhookUrl: form.value.webhookUrl,
+      feishuAppId: form.value.feishuAppId,
+      feishuAppSecret: form.value.feishuAppSecret,
+      feishuChatId: form.value.feishuChatId,
+    };
+    const result = await window.api.testWebhook(settings);
+    toast.value?.show(result?.success ? "测试发送成功！" : "发送失败: " + (result?.error || result?.status), result?.success ? "success" : "error");
   } catch (e) {
     toast.value?.show("测试失败: " + e.message, "error");
   }
+}
+
+async function loadFeishuChats() {
+  if (!form.value.feishuAppId || !form.value.feishuAppSecret) return;
+  loadingChats.value = true;
+  try {
+    feishuChats.value = await window.api.feishuListChats(form.value.feishuAppId, form.value.feishuAppSecret);
+    if (feishuChats.value.length > 0 && !form.value.feishuChatId) {
+      form.value.feishuChatId = feishuChats.value[0].id;
+    }
+    toast.value?.show(`发现 ${feishuChats.value.length} 个群聊`, "success");
+  } catch (e) {
+    toast.value?.show("获取群列表失败: " + e.message, "error");
+  }
+  loadingChats.value = false;
 }
 
 async function exportReport() {
@@ -363,19 +392,19 @@ const updateLabel = computed(() => {
       </div>
     </div>
 
-    <!-- Webhook Notifications -->
+    <!-- Notification Push -->
     <div class="apple-glass rounded-2xl overflow-hidden flex flex-col no-drag">
       <div class="px-6 py-4 flex items-center gap-3 bg-white/40 border-b border-apple-border/50">
         <div class="w-8 h-8 rounded-lg bg-cyan-500/10 flex items-center justify-center text-cyan-600">
           <Activity class="w-4 h-4" />
         </div>
-        <h3 class="font-bold text-apple-text">Webhook 通知</h3>
+        <h3 class="font-bold text-apple-text">消息推送</h3>
       </div>
       <div class="p-6 flex flex-col gap-4 bg-white/20">
         <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div class="flex flex-col gap-1">
-            <span class="font-bold text-sm text-apple-text">启用 Webhook 推送</span>
-            <span class="text-xs text-apple-textMuted">当账号配额耗尽、Token 过期、巡检完成时自动推送通知。</span>
+            <span class="font-bold text-sm text-apple-text">启用推送通知</span>
+            <span class="text-xs text-apple-textMuted">巡检完成、配额耗尽、Token 过期时自动推送通知到群聊。</span>
           </div>
           <label class="relative inline-flex items-center cursor-pointer">
             <input type="checkbox" v-model="form.webhookEnabled" class="sr-only peer">
@@ -384,16 +413,59 @@ const updateLabel = computed(() => {
         </div>
         <template v-if="form.webhookEnabled">
           <div class="h-px w-full bg-apple-border/50"></div>
-          <div class="flex flex-col gap-3">
-            <div class="flex items-center gap-3">
-              <select v-model="form.webhookType" class="bg-white border border-apple-border rounded-lg px-3 py-2 text-sm outline-none focus:border-apple-accent w-32">
-                <option value="discord">Discord</option>
-                <option value="feishu">飞书</option>
-                <option value="wecom">企业微信</option>
-              </select>
-              <input v-model="form.webhookUrl" class="flex-1 bg-white border border-apple-border rounded-lg px-3 py-2 text-sm outline-none focus:border-apple-accent font-mono" placeholder="Webhook URL..." />
-              <button class="apple-btn-secondary text-xs px-3" @click="testWebhook" :disabled="!form.webhookUrl">测试</button>
+
+          <!-- Channel Type -->
+          <div class="flex items-center gap-3">
+            <span class="font-bold text-sm text-apple-text w-16 flex-shrink-0">渠道</span>
+            <select v-model="form.webhookType" class="bg-white border border-apple-border rounded-lg px-3 py-2 text-sm outline-none focus:border-apple-accent flex-1">
+              <option value="feishu_app">飞书 App (推荐，无需 URL)</option>
+              <option value="feishu">飞书 Webhook</option>
+              <option value="discord">Discord Webhook</option>
+              <option value="wecom">企业微信 Webhook</option>
+            </select>
+          </div>
+
+          <!-- Feishu App Mode -->
+          <template v-if="form.webhookType === 'feishu_app'">
+            <div class="bg-blue-500/5 border border-blue-500/20 rounded-xl p-4 flex flex-col gap-3">
+              <p class="text-xs text-apple-textMuted">在<a href="https://open.feishu.cn/app" target="_blank" class="text-apple-accent hover:underline ml-1">飞书开放平台</a>创建应用，获取 App ID 和 App Secret，并将机器人添加到群聊。</p>
+              <div class="grid grid-cols-2 gap-3">
+                <div class="flex flex-col gap-1">
+                  <span class="text-xs font-bold text-apple-textMuted">App ID</span>
+                  <input v-model="form.feishuAppId" class="bg-white border border-apple-border rounded-lg px-3 py-2 text-sm outline-none focus:border-apple-accent font-mono" placeholder="cli_xxxxxxxx" />
+                </div>
+                <div class="flex flex-col gap-1">
+                  <span class="text-xs font-bold text-apple-textMuted">App Secret</span>
+                  <input v-model="form.feishuAppSecret" type="password" class="bg-white border border-apple-border rounded-lg px-3 py-2 text-sm outline-none focus:border-apple-accent font-mono" placeholder="••••••••" />
+                </div>
+              </div>
+              <div class="flex items-center gap-3">
+                <div class="flex-1 flex flex-col gap-1">
+                  <span class="text-xs font-bold text-apple-textMuted">目标群聊</span>
+                  <select v-model="form.feishuChatId" class="bg-white border border-apple-border rounded-lg px-3 py-2 text-sm outline-none focus:border-apple-accent" :disabled="feishuChats.length === 0">
+                    <option value="" disabled>{{ feishuChats.length === 0 ? '请先获取群列表' : '选择群聊...' }}</option>
+                    <option v-for="c in feishuChats" :key="c.id" :value="c.id">{{ c.name }}</option>
+                  </select>
+                </div>
+                <button class="apple-btn-secondary text-xs px-3 mt-4" @click="loadFeishuChats" :disabled="loadingChats || !form.feishuAppId || !form.feishuAppSecret">
+                  {{ loadingChats ? '...' : '获取群列表' }}
+                </button>
+              </div>
             </div>
+          </template>
+
+          <!-- Webhook URL Mode (feishu/discord/wecom) -->
+          <template v-else>
+            <div class="flex items-center gap-3">
+              <input v-model="form.webhookUrl" class="flex-1 bg-white border border-apple-border rounded-lg px-3 py-2 text-sm outline-none focus:border-apple-accent font-mono" placeholder="Webhook URL..." />
+            </div>
+          </template>
+
+          <!-- Test Button -->
+          <div class="flex justify-end">
+            <button class="apple-btn-secondary text-xs px-4 flex items-center gap-1.5" @click="testWebhook" :disabled="form.webhookType === 'feishu_app' ? !form.feishuChatId : !form.webhookUrl">
+              发送测试卡片
+            </button>
           </div>
         </template>
       </div>

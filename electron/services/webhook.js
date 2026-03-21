@@ -16,6 +16,8 @@ const EVENT_LABELS = {
   [WEBHOOK_EVENTS.AUTO_CHECK_DONE]: "自动巡检完成",
 };
 
+// ==================== Payload ====================
+
 export function formatWebhookPayload(event, data = {}) {
   return {
     event,
@@ -26,6 +28,8 @@ export function formatWebhookPayload(event, data = {}) {
   };
 }
 
+// ==================== Discord ====================
+
 export function buildDiscordEmbed(payload) {
   const colorMap = {
     [WEBHOOK_EVENTS.QUOTA_EXHAUSTED]: 0xff9500,
@@ -34,11 +38,7 @@ export function buildDiscordEmbed(payload) {
     [WEBHOOK_EVENTS.NEW_MEMBERS]: 0x34c759,
     [WEBHOOK_EVENTS.AUTO_CHECK_DONE]: 0x007aff,
   };
-  const fields = Object.entries(payload.data).map(([k, v]) => ({
-    name: k,
-    value: String(v),
-    inline: true,
-  }));
+  const fields = Object.entries(payload.data).map(([k, v]) => ({ name: k, value: String(v), inline: true }));
   return {
     embeds: [{
       title: `🔔 Cursor Manager — ${payload.label}`,
@@ -49,6 +49,8 @@ export function buildDiscordEmbed(payload) {
     }],
   };
 }
+
+// ==================== 飞书 Interactive Card ====================
 
 const FEISHU_COLORS = {
   [WEBHOOK_EVENTS.QUOTA_EXHAUSTED]: "orange",
@@ -66,6 +68,16 @@ const FEISHU_ICONS = {
   [WEBHOOK_EVENTS.AUTO_CHECK_DONE]: "✅",
 };
 
+function feishuStatColumn(label, value, color = "grey") {
+  return {
+    tag: "column", width: "weighted", weight: 1,
+    elements: [
+      { tag: "markdown", content: `<font color="${color}">**${value}**</font>`, text_align: "center" },
+      { tag: "markdown", content: `<font color="grey">${label}</font>`, text_align: "center" },
+    ],
+  };
+}
+
 export function buildFeishuCard(payload) {
   const color = FEISHU_COLORS[payload.event] || "blue";
   const icon = FEISHU_ICONS[payload.event] || "🔔";
@@ -74,15 +86,25 @@ export function buildFeishuCard(payload) {
   if (payload.event === WEBHOOK_EVENTS.AUTO_CHECK_DONE) {
     const d = payload.data;
     elements.push({
-      tag: "column_set",
-      flex_mode: "none",
-      background_style: "default",
+      tag: "column_set", flex_mode: "none", background_style: "default",
       columns: [
         feishuStatColumn("总计", String(d.total || 0), "green"),
         feishuStatColumn("成功", String(d.success || 0), "blue"),
         feishuStatColumn("失败", String(d.failed || 0), d.failed > 0 ? "red" : "grey"),
       ],
     });
+    if (d.healthScore != null) {
+      elements.push({ tag: "hr" });
+      elements.push({
+        tag: "column_set", flex_mode: "none",
+        columns: [
+          { tag: "column", width: "weighted", weight: 1, elements: [{ tag: "markdown", content: "🏥 **健康度评分**" }] },
+          { tag: "column", width: "weighted", weight: 1, elements: [
+            { tag: "markdown", content: `<font color="${d.healthScore >= 90 ? "green" : d.healthScore >= 60 ? "orange" : "red"}">**${d.healthGrade} (${d.healthScore}/100)**</font>`, text_align: "right" },
+          ]},
+        ],
+      });
+    }
   } else if (payload.event === WEBHOOK_EVENTS.QUOTA_EXHAUSTED || payload.event === WEBHOOK_EVENTS.ALL_EXHAUSTED) {
     const d = payload.data;
     elements.push({ tag: "markdown", content: `**账号**: ${d.email || "全部"}\n**余额**: $${d.balance ?? 0}\n**总账号数**: ${d.totalAccounts || "-"}` });
@@ -105,28 +127,12 @@ export function buildFeishuCard(payload) {
   });
 
   return {
-    msg_type: "interactive",
-    card: {
-      header: {
-        template: color,
-        title: { tag: "plain_text", content: `${icon} ${payload.label}` },
-      },
-      elements,
-    },
+    header: { template: color, title: { tag: "plain_text", content: `${icon} ${payload.label}` } },
+    elements,
   };
 }
 
-function feishuStatColumn(label, value, color = "grey") {
-  return {
-    tag: "column",
-    width: "weighted",
-    weight: 1,
-    elements: [
-      { tag: "markdown", content: `<font color="${color}">**${value}**</font>`, text_align: "center" },
-      { tag: "markdown", content: `<font color="grey">${label}</font>`, text_align: "center" },
-    ],
-  };
-}
+// ==================== 企业微信 ====================
 
 export function buildWeComMessage(payload) {
   const lines = Object.entries(payload.data).map(([k, v]) => `> **${k}**: ${v}`).join("\n");
@@ -138,20 +144,20 @@ export function buildWeComMessage(payload) {
   };
 }
 
-export async function sendWebhook(url, body) {
-  if (!url) return { success: false, error: "no_url" };
+// ==================== HTTP helpers ====================
+
+function httpPost(hostname, path, body, headers = {}) {
   return new Promise((resolve) => {
     const data = JSON.stringify(body);
-    const u = new URL(url);
     const req = https.request({
-      hostname: u.hostname,
-      path: u.pathname + u.search,
-      method: "POST",
-      headers: { "content-type": "application/json", "content-length": Buffer.byteLength(data) },
+      hostname, path, method: "POST",
+      headers: { "content-type": "application/json", "content-length": Buffer.byteLength(data), ...headers },
     }, (res) => {
-      let body = "";
-      res.on("data", (c) => (body += c));
-      res.on("end", () => resolve({ success: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode }));
+      let buf = "";
+      res.on("data", (c) => (buf += c));
+      res.on("end", () => {
+        try { resolve(JSON.parse(buf)); } catch { resolve({ raw: buf, statusCode: res.statusCode }); }
+      });
     });
     req.on("error", (e) => resolve({ success: false, error: e.message }));
     req.setTimeout(10000, () => { req.destroy(); resolve({ success: false, error: "timeout" }); });
@@ -160,16 +166,97 @@ export async function sendWebhook(url, body) {
   });
 }
 
+// ==================== 飞书 App API (app_id + app_secret) ====================
+
+let _feishuTokenCache = { token: null, expiresAt: 0 };
+
+async function getFeishuTenantToken(appId, appSecret) {
+  if (_feishuTokenCache.token && Date.now() < _feishuTokenCache.expiresAt) {
+    return _feishuTokenCache.token;
+  }
+  const resp = await httpPost("open.feishu.cn", "/open-apis/auth/v3/tenant_access_token/internal", {
+    app_id: appId, app_secret: appSecret,
+  });
+  if (resp.code !== 0 || !resp.tenant_access_token) {
+    console.error("[feishu] Failed to get tenant_access_token:", resp);
+    return null;
+  }
+  _feishuTokenCache = {
+    token: resp.tenant_access_token,
+    expiresAt: Date.now() + (resp.expire - 300) * 1000, // refresh 5 min early
+  };
+  return resp.tenant_access_token;
+}
+
+export async function feishuListChats(appId, appSecret) {
+  const token = await getFeishuTenantToken(appId, appSecret);
+  if (!token) return [];
+  return new Promise((resolve) => {
+    const req = https.request({
+      hostname: "open.feishu.cn",
+      path: "/open-apis/im/v1/chats?page_size=50",
+      method: "GET",
+      headers: { Authorization: `Bearer ${token}` },
+    }, (res) => {
+      let buf = "";
+      res.on("data", (c) => (buf += c));
+      res.on("end", () => {
+        try {
+          const data = JSON.parse(buf);
+          resolve((data.data?.items || []).map((c) => ({ id: c.chat_id, name: c.name })));
+        } catch { resolve([]); }
+      });
+    });
+    req.on("error", () => resolve([]));
+    req.end();
+  });
+}
+
+async function sendFeishuAppMessage(appId, appSecret, chatId, card) {
+  const token = await getFeishuTenantToken(appId, appSecret);
+  if (!token) return { success: false, error: "no_token" };
+  const resp = await httpPost(
+    "open.feishu.cn",
+    "/open-apis/im/v1/messages?receive_id_type=chat_id",
+    { receive_id: chatId, msg_type: "interactive", content: JSON.stringify(card) },
+    { Authorization: `Bearer ${token}` },
+  );
+  if (resp.code === 0) return { success: true, messageId: resp.data?.message_id };
+  return { success: false, error: `${resp.code}: ${resp.msg}` };
+}
+
+// ==================== 统一简单 Webhook POST ====================
+
+async function sendSimpleWebhook(url, body) {
+  if (!url) return { success: false, error: "no_url" };
+  const u = new URL(url);
+  const resp = await httpPost(u.hostname, u.pathname + u.search, body);
+  const ok = resp.statusCode ? resp.statusCode >= 200 && resp.statusCode < 300 : resp.code === 0;
+  return { success: ok, status: resp.statusCode, code: resp.code };
+}
+
+// ==================== Dispatch (统一入口) ====================
+
 export async function dispatchWebhook(settings, event, data) {
-  if (!settings?.webhookEnabled || !settings?.webhookUrl) return;
+  if (!settings?.webhookEnabled) return;
   const payload = formatWebhookPayload(event, data);
   const type = settings.webhookType || "discord";
-  let body;
-  if (type === "feishu") body = buildFeishuCard(payload);
-  else if (type === "wecom") body = buildWeComMessage(payload);
-  else body = buildDiscordEmbed(payload);
 
-  const result = await sendWebhook(settings.webhookUrl, body);
-  if (!result.success) console.error(`[webhook] Failed to send ${event}:`, result.error || result.status);
+  let result;
+  if (type === "feishu_app" && settings.feishuAppId && settings.feishuAppSecret && settings.feishuChatId) {
+    const card = buildFeishuCard(payload);
+    result = await sendFeishuAppMessage(settings.feishuAppId, settings.feishuAppSecret, settings.feishuChatId, card);
+  } else if (type === "feishu" && settings.webhookUrl) {
+    const card = buildFeishuCard(payload);
+    result = await sendSimpleWebhook(settings.webhookUrl, { msg_type: "interactive", card });
+  } else if (type === "wecom" && settings.webhookUrl) {
+    result = await sendSimpleWebhook(settings.webhookUrl, buildWeComMessage(payload));
+  } else if (type === "discord" && settings.webhookUrl) {
+    result = await sendSimpleWebhook(settings.webhookUrl, buildDiscordEmbed(payload));
+  } else {
+    return { success: false, error: "invalid_config" };
+  }
+
+  if (!result?.success) console.error(`[webhook] Failed to send ${event}:`, result?.error || result?.status);
   return result;
 }

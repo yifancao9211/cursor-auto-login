@@ -13,7 +13,7 @@ import { updater } from "./services/updater.js";
 import { logger } from "./services/logger.js";
 import { hasValidCredentials } from "./services/auth-utils.js";
 import { trayService } from "./services/tray.js";
-import { dispatchWebhook, WEBHOOK_EVENTS } from "./services/webhook.js";
+import { dispatchWebhook, WEBHOOK_EVENTS, feishuListChats } from "./services/webhook.js";
 import { generateCSV } from "./services/report.js";
 
 const DEFAULT_PASSWORD = "abcd@1234";
@@ -102,6 +102,9 @@ function setWebhookSettings(settings) {
     webhookEnabled: settings.webhookEnabled || false,
     webhookUrl: settings.webhookUrl || "",
     webhookType: settings.webhookType || "discord",
+    feishuAppId: settings.feishuAppId || "",
+    feishuAppSecret: settings.feishuAppSecret || "",
+    feishuChatId: settings.feishuChatId || "",
   };
 }
 
@@ -518,10 +521,28 @@ async function runAutoCheck() {
 
   // Webhook: dispatch auto_check_done
   const webhookSettings = getWebhookSettings();
+  // Compute health score for webhook payload
+  let healthScore = 0, healthGrade = "F";
+  try {
+    const allForScore = accountDb.listAll();
+    const scorable = allForScore.filter(a => a.account_status !== "disabled");
+    if (scorable.length > 0) {
+      const tokenH = Math.round((scorable.filter(a => a.token_valid).length / scorable.length) * 100);
+      const activeData = scorable.filter(a => a.account_status === "active" && (a.plan_limit || a.on_demand_limit));
+      const balH = activeData.length > 0 ? Math.round((activeData.filter(a => ((a.plan_limit||0)+(a.on_demand_limit||0)) > ((a.plan_used||0)+(a.on_demand_used||0))).length / activeData.length) * 100) : 100;
+      const processed = scorable.filter(a => a.account_status !== "new");
+      const covH = Math.round((processed.length / scorable.length) * 100);
+      healthScore = Math.round(tokenH * 0.35 + balH * 0.3 + 80 * 0.2 + covH * 0.15);
+      healthGrade = healthScore >= 90 ? "A" : healthScore >= 75 ? "B" : healthScore >= 60 ? "C" : healthScore >= 40 ? "D" : "F";
+    }
+  } catch {}
+
   dispatchWebhook(webhookSettings, WEBHOOK_EVENTS.AUTO_CHECK_DONE, {
     total: results.length + teamSpendCovered.size,
     success: results.filter(r => r.success).length + teamSpendCovered.size,
     failed: results.filter(r => !r.success).length,
+    healthScore,
+    healthGrade,
   });
 
   return results;
@@ -1071,12 +1092,17 @@ function registerIpcHandlers() {
     return { success: true, count: accounts.length, filePath };
   });
 
-  // -- Webhook test --
+  // -- Webhook --
   ipcMain.handle("webhook:test", async (_, settings) => {
-    const result = await dispatchWebhook(settings, WEBHOOK_EVENTS.AUTO_CHECK_DONE, {
-      message: "这是一条测试通知",
-      time: new Date().toLocaleString(),
-    });
-    return result || { success: true };
+    const result = await dispatchWebhook(
+      { ...settings, webhookEnabled: true },
+      WEBHOOK_EVENTS.AUTO_CHECK_DONE,
+      { total: 67, success: 67, failed: 0, healthScore: 92, healthGrade: "A", message: "测试通知" },
+    );
+    return result || { success: false, error: "no_result" };
+  });
+
+  ipcMain.handle("feishu:listChats", async (_, appId, appSecret) => {
+    return feishuListChats(appId, appSecret);
   });
 }

@@ -20,6 +20,9 @@ export const useAppStore = defineStore("app", {
       webhookEnabled: false,
       webhookUrl: "",
       webhookType: "discord",
+      feishuAppId: "",
+      feishuAppSecret: "",
+      feishuChatId: "",
       onboardingDone: false,
     },
     preferences: {
