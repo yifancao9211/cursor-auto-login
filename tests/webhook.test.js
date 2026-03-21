@@ -55,16 +55,21 @@ describe("formatWebhookPayload", () => {
     expect(card.elements.length).toBeGreaterThan(0);
   });
 
-  it("builds Feishu auto_check_done card with stat columns and health score", () => {
+  it("builds Feishu auto_check_done card with rich data", () => {
     const { buildFeishuCard } = require("../electron/services/webhook.js");
-    const payload = formatWebhookPayload(WEBHOOK_EVENTS.AUTO_CHECK_DONE, { total: 67, success: 65, failed: 2, healthScore: 92, healthGrade: "A" });
+    const payload = formatWebhookPayload(WEBHOOK_EVENTS.AUTO_CHECK_DONE, {
+      total: 68, success: 68, failed: 0, healthScore: 92, healthGrade: "A",
+      tokenH: 100, balH: 85, covH: 100, activeCount: 67, withBalanceCount: 50,
+      totalBalance: 245.5, newCount: 0, failedCount: 1, currentEmail: "test@t.com",
+    });
     const card = buildFeishuCard(payload);
     expect(card.header.template).toBe("blue");
-    const columnSet = card.elements.find(e => e.tag === "column_set");
-    expect(columnSet).toBeDefined();
-    expect(columnSet.columns).toHaveLength(3);
-    const healthMd = card.elements.find(e => e.tag === "column_set" && JSON.stringify(e).includes("健康度"));
-    expect(healthMd).toBeDefined();
+    const json = JSON.stringify(card);
+    expect(json).toContain("健康度");
+    expect(json).toContain("$245.5");
+    expect(json).toContain("test");
+    const statCols = card.elements.find(e => e.tag === "column_set" && e.columns?.length === 4);
+    expect(statCols).toBeDefined();
   });
 
   it("builds Feishu token_expired card with email list", () => {

@@ -85,25 +85,56 @@ export function buildFeishuCard(payload) {
 
   if (payload.event === WEBHOOK_EVENTS.AUTO_CHECK_DONE) {
     const d = payload.data;
-    elements.push({
-      tag: "column_set", flex_mode: "none", background_style: "default",
-      columns: [
-        feishuStatColumn("总计", String(d.total || 0), "green"),
-        feishuStatColumn("成功", String(d.success || 0), "blue"),
-        feishuStatColumn("失败", String(d.failed || 0), d.failed > 0 ? "red" : "grey"),
-      ],
-    });
+    const hColor = d.healthScore >= 90 ? "green" : d.healthScore >= 60 ? "orange" : "red";
+
+    // Row 1: Health score banner
     if (d.healthScore != null) {
-      elements.push({ tag: "hr" });
       elements.push({
         tag: "column_set", flex_mode: "none",
         columns: [
-          { tag: "column", width: "weighted", weight: 1, elements: [{ tag: "markdown", content: "🏥 **健康度评分**" }] },
           { tag: "column", width: "weighted", weight: 1, elements: [
-            { tag: "markdown", content: `<font color="${d.healthScore >= 90 ? "green" : d.healthScore >= 60 ? "orange" : "red"}">**${d.healthGrade} (${d.healthScore}/100)**</font>`, text_align: "right" },
+            { tag: "markdown", content: `🏥 健康度 <font color="${hColor}">**${d.healthGrade} (${d.healthScore}/100)**</font>` },
+          ]},
+          { tag: "column", width: "weighted", weight: 1, elements: [
+            { tag: "markdown", content: `👤 当前: **${d.currentEmail ? d.currentEmail.split("@")[0] : "-"}**`, text_align: "right" },
           ]},
         ],
       });
+      elements.push({ tag: "hr" });
+    }
+
+    // Row 2: Account stats
+    elements.push({
+      tag: "column_set", flex_mode: "none", background_style: "default",
+      columns: [
+        feishuStatColumn("总账号", String(d.total || 0), "green"),
+        feishuStatColumn("活跃", String(d.activeCount || 0), "blue"),
+        feishuStatColumn("有余额", String(d.withBalanceCount || 0), "green"),
+        feishuStatColumn("失败", String(d.failedCount || 0), d.failedCount > 0 ? "red" : "grey"),
+      ],
+    });
+
+    // Row 3: Balance + dimension breakdown
+    elements.push({ tag: "hr" });
+    elements.push({
+      tag: "column_set", flex_mode: "none",
+      columns: [
+        { tag: "column", width: "weighted", weight: 1, elements: [
+          { tag: "markdown", content: `💰 **总可用余额**\n<font color="green">**$${d.totalBalance || 0}**</font>` },
+        ]},
+        { tag: "column", width: "weighted", weight: 1, elements: [
+          { tag: "markdown", content: `🔑 Token ${d.tokenH || 0}%\n💰 余额 ${d.balH || 0}%\n📊 覆盖 ${d.covH || 0}%` },
+        ]},
+      ],
+    });
+
+    // Row 4: Check results
+    if (d.newCount > 0 || d.failed > 0) {
+      elements.push({ tag: "hr" });
+      const alerts = [];
+      if (d.newCount > 0) alerts.push(`🆕 ${d.newCount} 个待登录`);
+      if (d.failed > 0) alerts.push(`<font color="red">❌ ${d.failed} 个检查失败</font>`);
+      elements.push({ tag: "markdown", content: alerts.join("  ·  ") });
     }
   } else if (payload.event === WEBHOOK_EVENTS.QUOTA_EXHAUSTED || payload.event === WEBHOOK_EVENTS.ALL_EXHAUSTED) {
     const d = payload.data;

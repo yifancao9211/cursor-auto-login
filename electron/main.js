@@ -533,31 +533,43 @@ async function runAutoCheck() {
   // Update tray menu
   trayHandle?.updateMenu?.();
 
-  // Webhook: dispatch auto_check_done
+  // Webhook: build rich payload
   const webhookSettings = getWebhookSettings();
-  // Compute health score for webhook payload
-  let healthScore = 0, healthGrade = "F";
   try {
-    const allForScore = accountDb.listAll();
-    const scorable = allForScore.filter(a => a.account_status !== "disabled");
-    if (scorable.length > 0) {
-      const tokenH = Math.round((scorable.filter(a => a.token_valid).length / scorable.length) * 100);
-      const activeData = scorable.filter(a => a.account_status === "active" && (a.plan_limit || a.on_demand_limit));
-      const balH = activeData.length > 0 ? Math.round((activeData.filter(a => ((a.plan_limit||0)+(a.on_demand_limit||0)) > ((a.plan_used||0)+(a.on_demand_used||0))).length / activeData.length) * 100) : 100;
-      const processed = scorable.filter(a => a.account_status !== "new");
-      const covH = Math.round((processed.length / scorable.length) * 100);
-      healthScore = Math.round(tokenH * 0.35 + balH * 0.3 + 80 * 0.2 + covH * 0.15);
-      healthGrade = healthScore >= 90 ? "A" : healthScore >= 75 ? "B" : healthScore >= 60 ? "C" : healthScore >= 40 ? "D" : "F";
-    }
-  } catch {}
+    const all = accountDb.listAll();
+    const scorable = all.filter(a => a.account_status !== "disabled");
+    const active = scorable.filter(a => a.account_status === "active");
+    const withToken = scorable.filter(a => a.token_valid);
+    const withData = active.filter(a => a.plan_limit != null || a.on_demand_limit != null);
+    const withBalance = withData.filter(a => ((a.plan_limit||0)+(a.on_demand_limit||0)) > ((a.plan_used||0)+(a.on_demand_used||0)));
+    const totalBalance = withBalance.reduce((s, a) => s + ((a.plan_limit||0)+(a.on_demand_limit||0)-(a.plan_used||0)-(a.on_demand_used||0)), 0);
+    const newCount = scorable.filter(a => a.account_status === "new").length;
+    const failedCount = scorable.filter(a => a.account_status === "failed").length;
 
-  dispatchWebhook(webhookSettings, WEBHOOK_EVENTS.AUTO_CHECK_DONE, {
-    total: results.length + teamSpendCovered.size,
-    success: results.filter(r => r.success).length + teamSpendCovered.size,
-    failed: results.filter(r => !r.success).length,
-    healthScore,
-    healthGrade,
-  });
+    const tokenH = scorable.length > 0 ? Math.round((withToken.length / scorable.length) * 100) : 0;
+    const balH = withData.length > 0 ? Math.round((withBalance.length / withData.length) * 100) : 100;
+    const covH = scorable.length > 0 ? Math.round(((scorable.length - newCount) / scorable.length) * 100) : 0;
+    const healthScore = Math.round(tokenH * 0.35 + balH * 0.3 + 80 * 0.2 + covH * 0.15);
+    const healthGrade = healthScore >= 90 ? "A" : healthScore >= 75 ? "B" : healthScore >= 60 ? "C" : healthScore >= 40 ? "D" : "F";
+
+    // Current IDE account
+    let currentEmail = "";
+    try { currentEmail = cursorDb.readAuth()?.cachedEmail || ""; } catch {}
+
+    dispatchWebhook(webhookSettings, WEBHOOK_EVENTS.AUTO_CHECK_DONE, {
+      total: scorable.length,
+      success: results.filter(r => r.success).length + teamSpendCovered.size,
+      failed: results.filter(r => !r.success).length,
+      healthScore, healthGrade, tokenH, balH, covH,
+      activeCount: active.length,
+      withBalanceCount: withBalance.length,
+      totalBalance: +totalBalance.toFixed(2),
+      newCount, failedCount,
+      currentEmail,
+    });
+  } catch (e) {
+    console.error("[auto-check] Webhook dispatch failed:", e.message);
+  }
 
   return results;
   } finally {
