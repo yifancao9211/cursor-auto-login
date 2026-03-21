@@ -7,7 +7,6 @@ import Settings from "./views/Settings.vue";
 import Logs from "./views/Logs.vue";
 import Toast from "./components/Toast.vue";
 import ConfirmDialog from "./components/ConfirmDialog.vue";
-import OnboardingWizard from "./components/OnboardingWizard.vue";
 import { useAppStore } from "./stores/app.js";
 import { LayoutDashboard, Users, PackagePlus, Settings as SettingsIcon, Hexagon, ScrollText, Moon, Sun } from "lucide-vue-next";
 
@@ -15,7 +14,6 @@ const store = useAppStore();
 const activeTab = ref("dashboard");
 const toastRef = ref(null);
 const confirmRef = ref(null);
-const showOnboarding = ref(false);
 
 provide("toast", toastRef);
 provide("confirm", confirmRef);
@@ -35,7 +33,6 @@ onMounted(async () => {
   store.applyTheme();
   await store.loadAccounts();
   store.loadCurrentAuth();
-  showOnboarding.value = !store.settings.onboardingDone && store.accounts.length === 0;
 
   try {
     await window.api.updateScheduleSettings({
@@ -122,7 +119,6 @@ const tabs = [
 
     <Toast ref="toastRef" />
     <ConfirmDialog ref="confirmRef" />
-    <OnboardingWizard v-if="showOnboarding" @done="showOnboarding = false" />
   </div>
 </template>
 
