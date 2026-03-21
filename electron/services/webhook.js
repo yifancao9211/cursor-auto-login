@@ -199,10 +199,10 @@ function httpPost(hostname, path, body, headers = {}) {
 
 // ==================== 飞书 App API (app_id + app_secret) ====================
 
-let _feishuTokenCache = { token: null, expiresAt: 0 };
+let _feishuTokenCache = { token: null, expiresAt: 0, appId: null };
 
 async function getFeishuTenantToken(appId, appSecret) {
-  if (_feishuTokenCache.token && Date.now() < _feishuTokenCache.expiresAt) {
+  if (_feishuTokenCache.token && _feishuTokenCache.appId === appId && Date.now() < _feishuTokenCache.expiresAt) {
     return _feishuTokenCache.token;
   }
   const resp = await httpPost("open.feishu.cn", "/open-apis/auth/v3/tenant_access_token/internal", {
@@ -213,6 +213,7 @@ async function getFeishuTenantToken(appId, appSecret) {
     return null;
   }
   _feishuTokenCache = {
+    appId,
     token: resp.tenant_access_token,
     expiresAt: Date.now() + (resp.expire - 300) * 1000, // refresh 5 min early
   };
