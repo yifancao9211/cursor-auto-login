@@ -41,6 +41,12 @@ onMounted(async () => {
       retryFailedTime: store.settings.retryFailedTime || "00:00",
       enableLogging: store.settings.enableLogging || false,
       autoCheckMinutes: store.settings.autoCheckMinutes || 30,
+      webhookEnabled: store.settings.webhookEnabled || false,
+      webhookType: store.settings.webhookType || "discord",
+      webhookUrl: store.settings.webhookUrl || "",
+      feishuAppId: store.settings.feishuAppId || "",
+      feishuAppSecret: store.settings.feishuAppSecret || "",
+      feishuChatId: store.settings.feishuChatId || "",
     });
   } catch (e) {
     console.warn("[App] Failed to sync schedule settings:", e.message);
