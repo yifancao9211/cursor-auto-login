@@ -701,7 +701,7 @@ async function checkSingleAccount(acc) {
     return update;
   }
 
-  if (!acc.token && !acc.access_token) {
+  if (!acc.token && !acc.access_token && !acc.refresh_token) {
     update.token_valid = 0;
     update.account_status = acc.account_status === "new" ? "new" : "failed";
     update.last_checked = new Date().toISOString();
@@ -723,7 +723,18 @@ async function checkSingleAccount(acc) {
     }
   }
 
-  // 先调 API 查用量和订阅
+  // 如果有 refresh_token 但没有有效的 access_token，先尝试刷新
+  if (!acc.access_token && acc.refresh_token) {
+    console.log(`[check] ${acc.email}: 无 access_token，尝试用 refresh_token 刷新...`);
+    const refreshed = await tryRefreshTokenAndCookie(acc, update);
+    if (refreshed) {
+      console.log(`[check] ${acc.email}: refresh_token 刷新成功，获得新 access_token`);
+    } else {
+      console.log(`[check] ${acc.email}: refresh_token 刷新失败`);
+    }
+  }
+
+  // 调 API 查用量和订阅
   let usage = await cursorApi.fetchUsageSmart(acc);
   let stripe = await cursorApi.fetchStripeSmart(acc);
 
@@ -765,8 +776,16 @@ async function checkSingleAccount(acc) {
       update.account_status = acc.account_status === "new" ? "new" : (acc.account_status === "disabled" ? "disabled" : "failed");
     }
   } else {
-    // 网络错误/超时/服务器错误(500/502/503/504)：保持原有状态，绝不标记失效
-    console.log(`[check] ${acc.email}: API 返回 ${usage.status}，保持现有状态`);
+    // status === 0: 可能是网络错误/超时，也可能是 no_token
+    if (usage.error === 'no_token') {
+      // 确实没有任何可用凭证（refresh_token 刷新也失败了），标记为 failed
+      console.log(`[check] ${acc.email}: 无可用凭证(no_token)，标记为失效`);
+      update.token_valid = 0;
+      update.account_status = acc.account_status === "new" ? "new" : (acc.account_status === "disabled" ? "disabled" : "failed");
+    } else {
+      // 真正的网络错误/超时/服务器错误(500/502/503/504)：保持原有状态
+      console.log(`[check] ${acc.email}: API 返回 ${usage.status}(${usage.error || ''})，保持现有状态`);
+    }
   }
 
   if (stripe.status === 200 && stripe.data) {
