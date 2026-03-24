@@ -90,6 +90,7 @@ app.whenReady().then(() => {
     accountDb,
     onSmartSwitch: () => switcher.smartSwitch(accountDb, cursorApi),
     onRefresh: () => runQuickRefresh(),
+    onSwitchAccount: (account) => switcher.switchAccount(account, { resetMachineId: true, accountDb }),
   });
 
   // Auto-import current Cursor IDE account if not in DB

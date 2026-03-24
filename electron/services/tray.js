@@ -7,13 +7,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 let tray = null;
 
 export const trayService = {
-  init(mainWindow, { accountDb, onSmartSwitch, onRefresh }) {
+  init(mainWindow, { accountDb, onSmartSwitch, onRefresh, onSwitchAccount }) {
     if (tray) return;
 
     const iconPath = path.join(__dirname, "../../build/icon.png");
     let icon;
     try {
-      icon = nativeImage.createFromPath(iconPath).resize({ width: 18, height: 18 });
+      icon = nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 });
+      icon.setTemplateImage(true);
     } catch {
       icon = nativeImage.createEmpty();
     }
@@ -40,7 +41,7 @@ export const trayService = {
 
       const accountItems = top5.map((a) => ({
         label: `${a.email.split("@")[0]}  $${a.balance}`,
-        enabled: false,
+        click: () => onSwitchAccount?.(a),
       }));
 
       const menu = Menu.buildFromTemplate([
@@ -66,6 +67,7 @@ export const trayService = {
     };
 
     tray.on("click", () => {
+      if (mainWindow?.isDestroyed()) return;
       if (mainWindow?.isVisible()) {
         mainWindow.focus();
       } else {
