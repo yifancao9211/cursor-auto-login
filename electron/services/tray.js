@@ -10,10 +10,11 @@ export const trayService = {
   init(mainWindow, { accountDb, onSmartSwitch, onRefresh, onSwitchAccount }) {
     if (tray) return;
 
-    const iconPath = path.join(__dirname, "../../build/icon.png");
+    const iconPath = path.join(__dirname, "../../build/trayTemplate.png");
     let icon;
     try {
-      icon = nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 });
+      // Electron 会自动在视网膜屏下寻找 trayTemplate@2x.png
+      icon = nativeImage.createFromPath(iconPath);
       icon.setTemplateImage(true);
     } catch {
       icon = nativeImage.createEmpty();
