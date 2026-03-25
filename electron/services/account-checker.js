@@ -94,13 +94,14 @@ export async function checkSingleAccount(acc, { cursorApi, tokenExchange, hasVal
           console.log(`[check] ${acc.email}: refresh_token 失效，尝试用 cookie 兜底挽救...`);
           const exchangeResult = await tokenExchange.exchangeCookieToTokens(acc.token);
           if (exchangeResult.success) {
+            console.log(`[check] ${acc.email}: 🎊 Cookie 兜底挽救成功！获取到新 Token`);
             acc.access_token = exchangeResult.accessToken;
             acc.refresh_token = exchangeResult.refreshToken;
             update.access_token = exchangeResult.accessToken;
             update.refresh_token = exchangeResult.refreshToken;
             refreshed = true;
           } else {
-            // cookie 也罢工了，彻底死透
+            console.log(`[check] ${acc.email}: 💥 Cookie 也失效了，挽救失败 (${exchangeResult.error}) -> 彻底死亡`);
             refreshAttemptedAndAuthFailed = true;
           }
         } else {
@@ -108,16 +109,17 @@ export async function checkSingleAccount(acc, { cursorApi, tokenExchange, hasVal
         }
       }
     } else if (acc.token) {
+      console.log(`[check] ${acc.email}: 遇到 401 且无 refresh_token，尝试用 cookie 直接兑换新凭证...`);
       const exchangeResult = await tokenExchange.exchangeCookieToTokens(acc.token);
       if (exchangeResult.success) {
+        console.log(`[check] ${acc.email}: 🎊 Cookie 兑换新凭证成功！`);
         acc.access_token = exchangeResult.accessToken;
         acc.refresh_token = exchangeResult.refreshToken;
         update.access_token = exchangeResult.accessToken;
         update.refresh_token = exchangeResult.refreshToken;
         refreshed = true;
       } else {
-        // cookie 兑换失败通常意味着 cookie 也彻底或者部分失效 (登录界面/超时等)
-        // 保守起见将其视为 auth 失败。
+        console.log(`[check] ${acc.email}: 💥 Cookie 兑换失败 (${exchangeResult.error}) -> 主动判定为失效`);
         refreshAttemptedAndAuthFailed = true;
       }
     }
