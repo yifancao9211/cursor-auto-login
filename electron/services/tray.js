@@ -1,5 +1,6 @@
 import { Tray, Menu, nativeImage, app } from "electron";
 import path from "node:path";
+import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -10,13 +11,20 @@ export const trayService = {
   init(mainWindow, { accountDb, onSmartSwitch, onRefresh, onSwitchAccount }) {
     if (tray) return;
 
-    const iconPath = path.join(__dirname, "../../build/trayTemplate.png");
+    const iconPath = path.join(__dirname, "../assets/trayTemplate.png");
     let icon;
     try {
+      if (!fs.existsSync(iconPath)) {
+        console.error(`[tray] Icon not found at: ${iconPath}`);
+      }
       // Electron 会自动在视网膜屏下寻找 trayTemplate@2x.png
       icon = nativeImage.createFromPath(iconPath);
       icon.setTemplateImage(true);
-    } catch {
+      if (icon.isEmpty()) {
+        console.error(`[tray] Icon loaded but is empty: ${iconPath}`);
+      }
+    } catch (e) {
+      console.error(`[tray] Failed to load icon: ${e.message}`);
       icon = nativeImage.createEmpty();
     }
 
