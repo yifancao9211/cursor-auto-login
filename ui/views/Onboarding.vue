@@ -3,7 +3,7 @@ import { ref, reactive, computed, inject } from "vue";
 import { useAppStore } from "../stores/app.js";
 import { getBalance } from "../utils/account.js";
 import BatchLoginDialog from "../components/BatchLoginDialog.vue";
-import { Plus, Upload, RefreshCw, Trash2, AlertTriangle, PackagePlus, ShieldCheck, PlayCircle, BadgeInfo, Search, ClipboardPaste, X, Users, Ban, Undo2, Globe } from "lucide-vue-next";
+import { Plus, Upload, RefreshCw, Trash2, AlertTriangle, PackagePlus, ShieldCheck, PlayCircle, BadgeInfo, Search, ClipboardPaste, X, Users, Ban, Undo2, Globe, RotateCcw } from "lucide-vue-next";
 
 const store = useAppStore();
 const toast = inject("toast");
@@ -161,6 +161,54 @@ function onBatchDone() {
   store.loadAccounts();
 }
 
+async function resetAccount(email) {
+  const ok = await confirmDialog.value.show({
+    title: "重置账号",
+    message: `确定要重置 ${email} 吗？这会清空它的已有凭证，恢复为全新的待登录状态。`,
+    confirmText: "确认重置",
+    type: "warning"
+  });
+  if (!ok) return;
+  await window.api.upsertAccount({
+    email,
+    token: "",
+    access_token: "",
+    refresh_token: "",
+    account_status: "new",
+    token_valid: 0
+  });
+  await store.loadAccounts();
+  toast.value?.show("账号已退回待登录列表", "success");
+}
+
+async function batchResetFailed() {
+  const list = failedAccounts.value.filter(a => a.token || a.access_token || a.refresh_token);
+  if (!list.length) {
+    toast.value?.show("没有带有凭证残留的失败账号需要重置", "info");
+    return;
+  }
+  const ok = await confirmDialog.value.show({
+    title: "批量重置",
+    message: `确定要把 ${list.length} 个残留凭证的失败账号全部清空吗？它们将退回「待登录」列表重新开始。`,
+    confirmText: "全部重置",
+    type: "warning"
+  });
+  if (!ok) return;
+  
+  for (const acc of list) {
+    await window.api.upsertAccount({
+      email: acc.email,
+      token: "",
+      access_token: "",
+      refresh_token: "",
+      account_status: "new",
+      token_valid: 0
+    });
+  }
+  await store.loadAccounts();
+  toast.value?.show(`已批量重置 ${list.length} 个账号`, "success");
+}
+
 function balanceOf(acc) {
   return getBalance(acc);
 }
@@ -278,6 +326,9 @@ function balanceOf(acc) {
           <button v-if="failedAccounts.length" class="apple-btn-secondary text-xs px-3 flex items-center gap-1 !text-apple-warning" @click="startBatchForFailed">
             <PlayCircle class="w-3.5 h-3.5" /> 批量重试 ({{ failedAccounts.length }})
           </button>
+          <button v-if="failedAccounts.some(a => a.token || a.access_token || a.refresh_token)" class="apple-btn-secondary text-xs px-3 flex items-center gap-1 !text-apple-text" @click="batchResetFailed">
+            <RotateCcw class="w-3.5 h-3.5" /> 批量重置
+          </button>
           <button class="text-xs text-apple-danger hover:text-red-600 font-medium transition-colors" @click="clearAll('failed')">全部清除</button>
         </div>
       </div>
@@ -309,6 +360,10 @@ function balanceOf(acc) {
           <button class="apple-btn-secondary !text-apple-warning hover:bg-apple-warning/10 text-xs px-3" :disabled="retryingSet.has(acc.email)" @click="retrySingle(acc.email)">
             <RefreshCw :class="['w-3.5 h-3.5 mr-1', { 'animate-spin': retryingSet.has(acc.email) }]" />
             {{ retryingSet.has(acc.email) ? '...' : '重试' }}
+          </button>
+          <button v-if="acc.token || acc.access_token || acc.refresh_token" class="apple-btn-secondary !text-apple-text hover:bg-black/5 text-xs px-3 flex items-center gap-1" @click="resetAccount(acc.email)">
+            <RotateCcw class="w-3.5 h-3.5" />
+            重置
           </button>
           <button class="apple-btn-secondary !text-apple-textMuted hover:bg-black/5 text-xs px-2" title="标记为禁用" @click="toggleDisabled(acc.email, true)">
             <Ban class="w-3.5 h-3.5" />
