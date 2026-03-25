@@ -741,6 +741,7 @@ async function checkSingleAccount(acc) {
   let stripe = await cursorApi.fetchStripeSmart(acc);
 
   // 如果 401/403，尝试刷新 token + cookie 后重试
+  let refreshAttemptedAndFailed = false;
   if ((usage.status === 401 || usage.status === 403 || usage.status === 307) && acc.refresh_token) {
     console.log(`[check] ${acc.email}: API 返回 ${usage.status}，尝试刷新 token 后重试...`);
     const refreshed = await tryRefreshTokenAndCookie(acc, update);
@@ -751,6 +752,8 @@ async function checkSingleAccount(acc) {
       if (usage.status === 200) {
         console.log(`[check] ${acc.email}: 刷新后重试成功`);
       }
+    } else {
+      refreshAttemptedAndFailed = true;
     }
   }
 
@@ -767,12 +770,16 @@ async function checkSingleAccount(acc) {
     update.account_status = "active";
     if (usage.authMethod) console.log(`[check] ${acc.email}: usage via ${usage.authMethod}`);
   } else if (usage.status === 401 || usage.status === 403 || usage.status === 307) {
-    // 认证相关错误：只有在 token 确实已过期 且 刷新也失败时，才标记为 failed
-    if (hasValidCredentials(acc)) {
-      // 有未过期的 token/cookie/refresh_token → 不自动标记 failed（可能是服务端临时问题）
+    // 认证相关错误：如果刷新已尝试且失败，直接标记 failed（JWT 可能未过期但已被吊销）
+    if (refreshAttemptedAndFailed) {
+      console.log(`[check] ${acc.email}: 认证失败 (${usage.status}) 且 token 刷新失败，标记为失效`);
+      update.token_valid = 0;
+      update.account_status = acc.account_status === "new" ? "new" : (acc.account_status === "disabled" ? "disabled" : "failed");
+    } else if (hasValidCredentials(acc)) {
+      // 没有尝试刷新（可能无 refresh_token）但 token 未过期 → 可能是临时问题
       console.log(`[check] ${acc.email}: API 返回 ${usage.status}，但凭证未过期，保持现有状态`);
     } else {
-      // 所有凭证都已过期，才标记为 failed
+      // 所有凭证都已过期，标记为 failed
       console.log(`[check] ${acc.email}: 认证失败 (${usage.status}) 且凭证已过期，标记为失效`);
       update.token_valid = 0;
       update.account_status = acc.account_status === "new" ? "new" : (acc.account_status === "disabled" ? "disabled" : "failed");
