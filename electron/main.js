@@ -520,7 +520,8 @@ async function runAutoCheck() {
     try {
       const update = await checkSingleAccount(acc);
       accountDb.upsert(update);
-      results.push({ email: acc.email, success: true });
+      const ok = update.account_status !== "failed";
+      results.push({ email: acc.email, success: ok });
     } catch (e) {
       results.push({ email: acc.email, success: false, error: e.message });
     }
@@ -625,7 +626,8 @@ async function runQuickRefresh() {
         sendToRenderer("refresh:progress", { current: i + idx + 1, total: needsCheck.length, email: acc.email });
         const update = await checkSingleAccount(acc);
         accountDb.upsert(update);
-        return { email: acc.email, success: true };
+        const ok = update.account_status !== "failed";
+        return { email: acc.email, success: ok };
       })
     );
     for (const r of batchResults) {
