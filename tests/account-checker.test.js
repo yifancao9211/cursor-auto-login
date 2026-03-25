@@ -19,7 +19,7 @@ function makeDeps(overrides = {}) {
       ...overrides.cursorApi,
     },
     tokenExchange: {
-      refreshAccessToken: vi.fn().mockResolvedValue({ success: false, error: "shouldLogout" }),
+      refreshAccessToken: vi.fn().mockResolvedValue({ success: false, error: "shouldLogout", isAuthError: true }),
       exchangeCookieToTokens: vi.fn().mockResolvedValue({ success: false, error: "failed" }),
       ...overrides.tokenExchange,
     },
@@ -32,22 +32,32 @@ function makeDeps(overrides = {}) {
 // ============================================================
 
 describe("tryRefreshTokenAndCookie", () => {
-  it("returns false and sets _refreshInvalid when no refresh_token", async () => {
+  it("returns {success: false} with no _refreshInvalid when no refresh_token", async () => {
     const acc = { email: "a@b.com" };
     const update = {};
     const tx = { refreshAccessToken: vi.fn() };
     const result = await tryRefreshTokenAndCookie(acc, update, tx);
-    expect(result).toBe(false);
+    expect(result.success).toBe(false);
+    expect(acc._refreshInvalid).toBeUndefined();
     expect(tx.refreshAccessToken).not.toHaveBeenCalled();
   });
 
-  it("returns false and sets _refreshInvalid on refresh failure", async () => {
+  it("returns {success: false} and sets _refreshInvalid on auth failure", async () => {
     const acc = { email: "a@b.com", refresh_token: "rt" };
     const update = {};
-    const tx = { refreshAccessToken: vi.fn().mockResolvedValue({ success: false, error: "shouldLogout" }) };
+    const tx = { refreshAccessToken: vi.fn().mockResolvedValue({ success: false, error: "shouldLogout", isAuthError: true }) };
     const result = await tryRefreshTokenAndCookie(acc, update, tx);
-    expect(result).toBe(false);
+    expect(result.success).toBe(false);
     expect(acc._refreshInvalid).toBe(true);
+  });
+
+  it("returns {success: false} and DOES NOT set _refreshInvalid on network jitter", async () => {
+    const acc = { email: "a@b.com", refresh_token: "rt" };
+    const update = {};
+    const tx = { refreshAccessToken: vi.fn().mockResolvedValue({ success: false, error: "timeout", isAuthError: false }) };
+    const result = await tryRefreshTokenAndCookie(acc, update, tx);
+    expect(result.success).toBe(false);
+    expect(acc._refreshInvalid).toBeUndefined();
   });
 
   it("returns true and updates acc/update on refresh success", async () => {
@@ -62,7 +72,7 @@ describe("tryRefreshTokenAndCookie", () => {
       }),
     };
     const result = await tryRefreshTokenAndCookie(acc, update, tx);
-    expect(result).toBe(true);
+    expect(result.success).toBe(true);
     expect(acc.access_token).toBe("newAccess");
     expect(acc.refresh_token).toBe("newRefresh");
     expect(acc.token).toBe("newCookie");
@@ -137,7 +147,7 @@ describe("checkSingleAccount", () => {
         fetchStripeSmart: vi.fn().mockResolvedValue({ status: 401 }),
       },
       tokenExchange: {
-        refreshAccessToken: vi.fn().mockResolvedValue({ success: false, error: "shouldLogout" }),
+        refreshAccessToken: vi.fn().mockResolvedValue({ success: false, error: "shouldLogout", isAuthError: true }),
       },
       // 模拟 hasValidCredentials 在 JWT 未过期时返回 true（这正是之前的 bug）
       hasValidCredentials: vi.fn().mockReturnValue(true),
@@ -164,18 +174,19 @@ describe("checkSingleAccount", () => {
     expect(update.account_status).toBe("failed");
   });
 
-  it("keeps status when 401 + no refresh_token but credentials still valid (temp issue)", async () => {
+  it("★ 401: keeps status when 401 + refresh returns network error (isAuthError=false)", async () => {
     const deps = makeDeps({
       cursorApi: {
         fetchUsageSmart: vi.fn().mockResolvedValue({ status: 401 }),
         fetchStripeSmart: vi.fn().mockResolvedValue({ status: 200, data: {} }),
       },
-      hasValidCredentials: vi.fn().mockReturnValue(true),
+      tokenExchange: {
+        refreshAccessToken: vi.fn().mockResolvedValue({ success: false, error: "timeout", isAuthError: false }),
+      },
     });
-    // 没有 refresh_token → 不会尝试刷新 → refreshAttemptedAndFailed = false
-    const acc = { email: "a@b.com", access_token: makeJwt(), account_status: "active" };
+    const acc = { email: "a@b.com", access_token: makeJwt(), refresh_token: "rt", account_status: "active" };
     const update = await checkSingleAccount(acc, deps);
-    // 应保持原状（不标记 failed）
+    // 应保持原状（不标记 failed）因为是网络错误，可以留到下次巡检
     expect(update.token_valid).toBeUndefined();
     expect(update.account_status).toBeUndefined();
   });
@@ -240,10 +251,17 @@ describe("checkSingleAccount", () => {
     expect(update.account_status).toBeUndefined();
   });
 
-  // ------- cookie → access_token 自动转换 -------
+  // ------- 401 触发 cookie → access_token 自动转换 -------
 
-  it("attempts cookie exchange when has cookie but no access_token", async () => {
+  it("attempts cookie exchange when 401 and has cookie but no refresh_token", async () => {
     const deps = makeDeps({
+      cursorApi: {
+        // First call fails, token exchange succeeds, then second call 200
+        fetchUsageSmart: vi.fn()
+          .mockResolvedValueOnce({ status: 401 })
+          .mockResolvedValueOnce({ status: 200, data: { membershipType: "free" } }),
+        fetchStripeSmart: vi.fn().mockResolvedValue({ status: 200, data: {} }),
+      },
       tokenExchange: {
         exchangeCookieToTokens: vi.fn().mockResolvedValue({
           success: true,
@@ -253,10 +271,12 @@ describe("checkSingleAccount", () => {
         refreshAccessToken: vi.fn(),
       },
     });
+    // No access_token and no refresh_token, BUT has a cookie
     const acc = { email: "a@b.com", token: "somecookie", account_status: "active" };
     const update = await checkSingleAccount(acc, deps);
     expect(deps.tokenExchange.exchangeCookieToTokens).toHaveBeenCalledWith("somecookie");
     expect(update.access_token).toBe("fromCookie");
+    expect(update.account_status).toBe("active");
   });
 
   // ------- Stripe 数据合并 -------

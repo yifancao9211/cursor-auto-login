@@ -12,7 +12,7 @@
  * @returns {Promise<boolean>} 是否刷新成功
  */
 export async function tryRefreshTokenAndCookie(acc, update, tokenExchange) {
-  if (!acc.refresh_token) return false;
+  if (!acc.refresh_token) return { success: false, isAuthError: false };
 
   // 从现有 cookie 提取 userId
   let userId = null;
@@ -26,8 +26,10 @@ export async function tryRefreshTokenAndCookie(acc, update, tokenExchange) {
 
   const refreshResult = await tokenExchange.refreshAccessToken(acc.refresh_token, userId);
   if (!refreshResult.success) {
-    acc._refreshInvalid = true;
-    return false;
+    if (refreshResult.isAuthError) {
+      acc._refreshInvalid = true;
+    }
+    return refreshResult;
   }
 
   acc.access_token = refreshResult.accessToken;
@@ -43,7 +45,7 @@ export async function tryRefreshTokenAndCookie(acc, update, tokenExchange) {
     update.token = refreshResult.newCookie;
   }
 
-  return true;
+  return { success: true };
 }
 
 /**
@@ -67,18 +69,7 @@ export async function checkSingleAccount(acc, { cursorApi, tokenExchange, hasVal
     return update;
   }
 
-  // 如果有 cookie 但没有 access_token，尝试自动转换
-  if (acc.token && !acc.access_token) {
-    const exchangeResult = await tokenExchange.exchangeCookieToTokens(acc.token);
-    if (exchangeResult.success) {
-      acc.access_token = exchangeResult.accessToken;
-      acc.refresh_token = exchangeResult.refreshToken;
-      update.access_token = exchangeResult.accessToken;
-      update.refresh_token = exchangeResult.refreshToken;
-    }
-  }
-
-  // 如果有 refresh_token 但没有有效的 access_token，先尝试刷新
+  // 如果有 refresh_token 但没有有效的 access_token，提前尝试刷新
   if (!acc.access_token && acc.refresh_token) {
     await tryRefreshTokenAndCookie(acc, update, tokenExchange);
   }
@@ -87,15 +78,42 @@ export async function checkSingleAccount(acc, { cursorApi, tokenExchange, hasVal
   let usage = await cursorApi.fetchUsageSmart(acc);
   let stripe = await cursorApi.fetchStripeSmart(acc);
 
-  // 如果 401/403，尝试刷新 token + cookie 后重试
-  let refreshAttemptedAndFailed = false;
-  if ((usage.status === 401 || usage.status === 403 || usage.status === 307) && acc.refresh_token) {
-    const refreshed = await tryRefreshTokenAndCookie(acc, update, tokenExchange);
+  // 如果 401/403/307，尝试挽救（刷新或用 cookie 兑换）
+  let refreshAttemptedAndAuthFailed = false;
+  
+  if (usage.status === 401 || usage.status === 403 || usage.status === 307) {
+    let refreshed = false;
+
+    if (acc.refresh_token) {
+      const res = await tryRefreshTokenAndCookie(acc, update, tokenExchange);
+      if (res.success) {
+        refreshed = true;
+      } else if (res.isAuthError) {
+        refreshAttemptedAndAuthFailed = true;
+      }
+    } else if (acc.token) {
+      const exchangeResult = await tokenExchange.exchangeCookieToTokens(acc.token);
+      if (exchangeResult.success) {
+        acc.access_token = exchangeResult.accessToken;
+        acc.refresh_token = exchangeResult.refreshToken;
+        update.access_token = exchangeResult.accessToken;
+        update.refresh_token = exchangeResult.refreshToken;
+        refreshed = true;
+      } else {
+        // cookie 兑换失败通常意味着 cookie 也彻底或者部分失效 (登录界面/超时等)
+        // 保守起见将其视为 auth 失败。
+        refreshAttemptedAndAuthFailed = true;
+      }
+    }
+
     if (refreshed) {
       usage = await cursorApi.fetchUsageSmart(acc);
       stripe = await cursorApi.fetchStripeSmart(acc);
     } else {
-      refreshAttemptedAndFailed = true;
+      // 如果尝试时都没有 refresh_token 和 cookie 可用，说明在 401 面前已经束手无策，判定为 auth 失败（死透了）
+      if (!acc.refresh_token && !acc.token) {
+        refreshAttemptedAndAuthFailed = true;
+      }
     }
   }
 
@@ -111,15 +129,13 @@ export async function checkSingleAccount(acc, { cursorApi, tokenExchange, hasVal
     update.token_valid = 1;
     update.account_status = "active";
   } else if (usage.status === 401 || usage.status === 403 || usage.status === 307) {
-    if (refreshAttemptedAndFailed) {
-      update.token_valid = 0;
-      update.account_status = acc.account_status === "new" ? "new" : (acc.account_status === "disabled" ? "disabled" : "failed");
-    } else if (hasValidCredentials(acc)) {
-      // 没有尝试刷新但 token 未过期 → 可能是临时问题，保持原状
-    } else {
+    if (refreshAttemptedAndAuthFailed) {
       update.token_valid = 0;
       update.account_status = acc.account_status === "new" ? "new" : (acc.account_status === "disabled" ? "disabled" : "failed");
     }
+    // else { 
+    //    遇到了纯网络错误，没能完成重试。为了账号不被误杀，什么标记也不做，留到下次巡检
+    // }
   } else {
     if (usage.error === "no_token") {
       update.token_valid = 0;

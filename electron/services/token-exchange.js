@@ -221,7 +221,7 @@ export const tokenExchange = {
 
           if (data.shouldLogout) {
             console.log("[token-refresh] Server returned shouldLogout=true, token may be revoked");
-            return { success: false, error: "shouldLogout" };
+            return { success: false, error: "shouldLogout", isAuthError: true };
           }
         } catch {
           // parse error
@@ -229,9 +229,12 @@ export const tokenExchange = {
       }
 
       console.log(`[token-refresh] Refresh failed: status=${resp.status}, body=${resp.raw?.substring(0, 200)}`);
-      return { success: false, error: `refresh returned ${resp.status}` };
+      // 400, 401, 403 generally mean the refresh token is defunct
+      const isAuthError = [400, 401, 403].includes(resp.status);
+      return { success: false, error: `refresh returned ${resp.status}`, isAuthError };
     } catch (e) {
-      return { success: false, error: e.message };
+      // 纯网络错误 (fetch failed, timeout, ECONNREFUSED)
+      return { success: false, error: e.message, isAuthError: false };
     }
   },
 
