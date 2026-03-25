@@ -53,7 +53,7 @@ const stats = computed(() => {
   const total = store.accounts.length;
   const valid = store.validAccounts.length;
   const withBalance = store.accountsWithBalance.length;
-  const failed = store.accounts.filter(a => !a.token_valid).length;
+  const failed = store.failedAccounts.length;
   return { total, valid, withBalance, failed };
 });
 
