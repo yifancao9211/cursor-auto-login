@@ -89,7 +89,23 @@ export async function checkSingleAccount(acc, { cursorApi, tokenExchange, hasVal
       if (res.success) {
         refreshed = true;
       } else if (res.isAuthError) {
-        refreshAttemptedAndAuthFailed = true;
+        // refresh_token 死了（真正的Auth失败），尝试用 cookie 兜底挽救！
+        if (acc.token) {
+          console.log(`[check] ${acc.email}: refresh_token 失效，尝试用 cookie 兜底挽救...`);
+          const exchangeResult = await tokenExchange.exchangeCookieToTokens(acc.token);
+          if (exchangeResult.success) {
+            acc.access_token = exchangeResult.accessToken;
+            acc.refresh_token = exchangeResult.refreshToken;
+            update.access_token = exchangeResult.accessToken;
+            update.refresh_token = exchangeResult.refreshToken;
+            refreshed = true;
+          } else {
+            // cookie 也罢工了，彻底死透
+            refreshAttemptedAndAuthFailed = true;
+          }
+        } else {
+          refreshAttemptedAndAuthFailed = true;
+        }
       }
     } else if (acc.token) {
       const exchangeResult = await tokenExchange.exchangeCookieToTokens(acc.token);

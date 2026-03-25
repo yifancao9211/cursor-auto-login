@@ -155,9 +155,38 @@ describe("checkSingleAccount", () => {
     const acc = { email: "a@b.com", access_token: jwt, refresh_token: "rt", account_status: "active" };
     const update = await checkSingleAccount(acc, deps);
 
-    // 关键断言：即使 hasValidCredentials 返回 true，也应标记 failed
+    // 关键断言：即使 hasValidCredentials 返回 true，也应因为无法挽救而标记 failed
     expect(update.token_valid).toBe(0);
     expect(update.account_status).toBe("failed");
+  });
+
+  it("★ 401: rescues account using cookie if refresh_token fails (isAuthError=true)", async () => {
+    const deps = makeDeps({
+      cursorApi: {
+        fetchUsageSmart: vi.fn()
+          .mockResolvedValueOnce({ status: 401 })
+          .mockResolvedValueOnce({ status: 200, data: { membershipType: "free" } }),
+        fetchStripeSmart: vi.fn().mockResolvedValue({ status: 200, data: {} }),
+      },
+      tokenExchange: {
+        refreshAccessToken: vi.fn().mockResolvedValue({ success: false, error: "shouldLogout", isAuthError: true }),
+        exchangeCookieToTokens: vi.fn().mockResolvedValue({
+          success: true,
+          accessToken: "rescuedFromCookie",
+          refreshToken: "newRefreshFromCookie",
+        }),
+      },
+    });
+    // 该账号既有 refresh_token 又有 cookie
+    const acc = { email: "a@b.com", access_token: "old", refresh_token: "rt", token: "cookie", account_status: "active" };
+    const update = await checkSingleAccount(acc, deps);
+
+    // 应成功被 cookie 挽救
+    expect(deps.tokenExchange.exchangeCookieToTokens).toHaveBeenCalledWith("cookie");
+    expect(update.access_token).toBe("rescuedFromCookie");
+    expect(update.refresh_token).toBe("newRefreshFromCookie");
+    expect(update.token_valid).toBe(1);
+    expect(update.account_status).toBe("active");
   });
 
   it("★ marks failed when 401 + no refresh_token + expired credentials", async () => {
