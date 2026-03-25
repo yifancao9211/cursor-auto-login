@@ -643,41 +643,8 @@ async function runQuickRefresh() {
  * 会修改 acc 和 update 对象，返回是否刷新成功
  */
 async function tryRefreshTokenAndCookie(acc, update) {
-  if (!acc.refresh_token) return false;
-
-  // 从现有 cookie 提取 userId
-  let userId = null;
-  if (acc.token) {
-    try {
-      const decoded = decodeURIComponent(acc.token);
-      const idx = decoded.indexOf("::");
-      if (idx > 0) userId = decoded.substring(0, idx);
-    } catch {}
-  }
-
-  const refreshResult = await tokenExchange.refreshAccessToken(acc.refresh_token, userId);
-  if (!refreshResult.success) {
-    console.log(`[check] ${acc.email}: token 刷新失败(${refreshResult.error})`);
-    acc._refreshInvalid = true;
-    return false;
-  }
-
-  console.log(`[check] ${acc.email}: access_token 刷新成功`);
-  acc.access_token = refreshResult.accessToken;
-  update.access_token = refreshResult.accessToken;
-
-  if (refreshResult.refreshToken && refreshResult.refreshToken !== acc.refresh_token) {
-    acc.refresh_token = refreshResult.refreshToken;
-    update.refresh_token = refreshResult.refreshToken;
-  }
-
-  if (refreshResult.newCookie) {
-    acc.token = refreshResult.newCookie;
-    update.token = refreshResult.newCookie;
-    console.log(`[check] ${acc.email}: cookie 已同步续期`);
-  }
-
-  return true;
+  const { tryRefreshTokenAndCookie: _try } = await import("./services/account-checker.js");
+  return _try(acc, update, tokenExchange);
 }
 
 // hasValidCredentials imported from auth-utils.js
@@ -696,117 +663,8 @@ function saveLoginResult(r) {
 }
 
 async function checkSingleAccount(acc) {
-  const update = { email: acc.email };
-
-  // 跳过已禁用的账号，保持状态不变
-  if (acc.account_status === "disabled") {
-    return update;
-  }
-
-  if (!acc.token && !acc.access_token && !acc.refresh_token) {
-    update.token_valid = 0;
-    update.account_status = acc.account_status === "new" ? "new" : "failed";
-    update.last_checked = new Date().toISOString();
-    return update;
-  }
-
-  // 如果有 cookie 但没有 access_token，尝试自动转换
-  if (acc.token && !acc.access_token) {
-    console.log(`[check] ${acc.email}: 有 cookie 无 access_token，尝试自动转换...`);
-    const exchangeResult = await tokenExchange.exchangeCookieToTokens(acc.token);
-    if (exchangeResult.success) {
-      console.log(`[check] ${acc.email}: Cookie → accessToken 转换成功`);
-      acc.access_token = exchangeResult.accessToken;
-      acc.refresh_token = exchangeResult.refreshToken;
-      update.access_token = exchangeResult.accessToken;
-      update.refresh_token = exchangeResult.refreshToken;
-    } else {
-      console.log(`[check] ${acc.email}: Cookie → accessToken 转换失败: ${exchangeResult.error}`);
-    }
-  }
-
-  // 如果有 refresh_token 但没有有效的 access_token，先尝试刷新
-  if (!acc.access_token && acc.refresh_token) {
-    console.log(`[check] ${acc.email}: 无 access_token，尝试用 refresh_token 刷新...`);
-    const refreshed = await tryRefreshTokenAndCookie(acc, update);
-    if (refreshed) {
-      console.log(`[check] ${acc.email}: refresh_token 刷新成功，获得新 access_token`);
-    } else {
-      console.log(`[check] ${acc.email}: refresh_token 刷新失败`);
-    }
-  }
-
-  // 调 API 查用量和订阅
-  let usage = await cursorApi.fetchUsageSmart(acc);
-  let stripe = await cursorApi.fetchStripeSmart(acc);
-
-  // 如果 401/403，尝试刷新 token + cookie 后重试
-  let refreshAttemptedAndFailed = false;
-  if ((usage.status === 401 || usage.status === 403 || usage.status === 307) && acc.refresh_token) {
-    console.log(`[check] ${acc.email}: API 返回 ${usage.status}，尝试刷新 token 后重试...`);
-    const refreshed = await tryRefreshTokenAndCookie(acc, update);
-    if (refreshed) {
-      // 用新 token 重试 API
-      usage = await cursorApi.fetchUsageSmart(acc);
-      stripe = await cursorApi.fetchStripeSmart(acc);
-      if (usage.status === 200) {
-        console.log(`[check] ${acc.email}: 刷新后重试成功`);
-      }
-    } else {
-      refreshAttemptedAndFailed = true;
-    }
-  }
-
-  if (usage.status === 200 && usage.data) {
-    const od = usage.data.individualUsage?.onDemand;
-    const plan = usage.data.individualUsage?.plan;
-    update.membership_type = usage.data.membershipType || null;
-    update.on_demand_used = od ? +(od.used / 100).toFixed(2) : null;
-    update.on_demand_limit = od ? +(od.limit / 100).toFixed(2) : null;
-    update.plan_used = plan ? +(plan.used / 100).toFixed(2) : null;
-    update.plan_limit = plan ? +(plan.limit / 100).toFixed(2) : null;
-    update.reset_date = usage.data.billingCycleEnd || null;
-    update.token_valid = 1;
-    update.account_status = "active";
-    if (usage.authMethod) console.log(`[check] ${acc.email}: usage via ${usage.authMethod}`);
-  } else if (usage.status === 401 || usage.status === 403 || usage.status === 307) {
-    // 认证相关错误：如果刷新已尝试且失败，直接标记 failed（JWT 可能未过期但已被吊销）
-    if (refreshAttemptedAndFailed) {
-      console.log(`[check] ${acc.email}: 认证失败 (${usage.status}) 且 token 刷新失败，标记为失效`);
-      update.token_valid = 0;
-      update.account_status = acc.account_status === "new" ? "new" : (acc.account_status === "disabled" ? "disabled" : "failed");
-    } else if (hasValidCredentials(acc)) {
-      // 没有尝试刷新（可能无 refresh_token）但 token 未过期 → 可能是临时问题
-      console.log(`[check] ${acc.email}: API 返回 ${usage.status}，但凭证未过期，保持现有状态`);
-    } else {
-      // 所有凭证都已过期，标记为 failed
-      console.log(`[check] ${acc.email}: 认证失败 (${usage.status}) 且凭证已过期，标记为失效`);
-      update.token_valid = 0;
-      update.account_status = acc.account_status === "new" ? "new" : (acc.account_status === "disabled" ? "disabled" : "failed");
-    }
-  } else {
-    // status === 0: 可能是网络错误/超时，也可能是 no_token
-    if (usage.error === 'no_token') {
-      // 确实没有任何可用凭证（refresh_token 刷新也失败了），标记为 failed
-      console.log(`[check] ${acc.email}: 无可用凭证(no_token)，标记为失效`);
-      update.token_valid = 0;
-      update.account_status = acc.account_status === "new" ? "new" : (acc.account_status === "disabled" ? "disabled" : "failed");
-    } else {
-      // 真正的网络错误/超时/服务器错误(500/502/503/504)：保持原有状态
-      console.log(`[check] ${acc.email}: API 返回 ${usage.status}(${usage.error || ''})，保持现有状态`);
-    }
-  }
-
-  if (stripe.status === 200 && stripe.data) {
-    // full_stripe_profile (Bearer) 和 /api/auth/stripe (Cookie) 字段基本一致
-    update.membership_type = stripe.data.membershipType || update.membership_type;
-    update.days_remaining = stripe.data.daysRemainingOnTrial || 0;
-    if (stripe.data.paymentId) update.stripe_customer_id = stripe.data.paymentId;
-    if (stripe.data.teamId) update.team_id = String(stripe.data.teamId);
-  }
-
-  update.last_checked = new Date().toISOString();
-  return update;
+  const { checkSingleAccount: _check } = await import("./services/account-checker.js");
+  return _check(acc, { cursorApi, tokenExchange, hasValidCredentials });
 }
 
 /** 用已有有效 Token 拉组织计费成员，发现新成员自动加入 DB */
