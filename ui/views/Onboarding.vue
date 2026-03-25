@@ -3,13 +3,14 @@ import { ref, reactive, computed, inject } from "vue";
 import { useAppStore } from "../stores/app.js";
 import { getBalance } from "../utils/account.js";
 import BatchLoginDialog from "../components/BatchLoginDialog.vue";
-import { Plus, Upload, RefreshCw, Trash2, AlertTriangle, PackagePlus, ShieldCheck, PlayCircle, BadgeInfo, Search, ClipboardPaste, X, Users, Ban, Undo2 } from "lucide-vue-next";
+import { Plus, Upload, RefreshCw, Trash2, AlertTriangle, PackagePlus, ShieldCheck, PlayCircle, BadgeInfo, Search, ClipboardPaste, X, Users, Ban, Undo2, Globe } from "lucide-vue-next";
 
 const store = useAppStore();
 const toast = inject("toast");
 const confirmDialog = inject("confirm");
 const showBatchLogin = ref(false);
 const batchLoginEmails = ref("");
+const defaultTab = ref("password");
 const addEmail = ref("");
 const retryingSet = reactive(new Set());
 const filterText = ref("");
@@ -58,6 +59,13 @@ function startBatchForFailed() {
 function startBatchAll() {
   const all = [...newAccounts.value, ...failedAccounts.value].map(a => a.email);
   batchLoginEmails.value = all.join("\n");
+  defaultTab.value = "password";
+  showBatchLogin.value = true;
+}
+
+function openOAuthLogin() {
+  defaultTab.value = "oauth";
+  batchLoginEmails.value = "";
   showBatchLogin.value = true;
 }
 
@@ -173,6 +181,9 @@ function balanceOf(acc) {
         </button>
         <button class="apple-btn-secondary flex items-center gap-1.5" @click="openImportDialog">
           <ClipboardPaste class="w-4 h-4" /> 批量导入
+        </button>
+        <button class="apple-btn-secondary flex items-center gap-1.5 !text-blue-600 border-blue-500/20 hover:bg-blue-500/10" @click="openOAuthLogin">
+          <Globe class="w-4 h-4" /> 浏览器授权
         </button>
         <button class="apple-btn-primary flex items-center gap-1.5" @click="startBatchAll" :disabled="newAccounts.length + failedAccounts.length === 0">
           <PlayCircle class="w-4 h-4" /> 全部登录 ({{ newAccounts.length + failedAccounts.length }})
@@ -354,7 +365,7 @@ function balanceOf(acc) {
     <div class="pb-6"></div>
 
     <!-- Batch Login Dialog -->
-    <BatchLoginDialog v-model="showBatchLogin" :initial-emails="batchLoginEmails" @done="onBatchDone" />
+    <BatchLoginDialog v-model="showBatchLogin" :initial-emails="batchLoginEmails" :initial-tab="defaultTab" @done="onBatchDone" />
 
     <!-- Import JSON Dialog -->
     <Transition name="modal">

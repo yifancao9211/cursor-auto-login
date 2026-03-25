@@ -3,7 +3,7 @@ import { ref, computed, watch } from "vue";
 import { useAppStore } from "../stores/app.js";
 import { X, KeyRound, CheckCircle2, AlertCircle, PlayCircle, RotateCw, Globe, Loader2 } from "lucide-vue-next";
 
-const props = defineProps({ modelValue: Boolean, initialEmails: { type: String, default: "" } });
+const props = defineProps({ modelValue: Boolean, initialEmails: { type: String, default: "" }, initialTab: { type: String, default: "password" } });
 const emit = defineEmits(["update:modelValue", "done"]);
 
 const store = useAppStore();
@@ -27,12 +27,9 @@ const oauthResult = ref(null);
 
 // Pre-fill emails when dialog opens with initialEmails
 watch(() => props.modelValue, (visible) => {
-  if (visible && props.initialEmails) {
-    emailsText.value = props.initialEmails;
-  }
-  if (!visible) {
-    // 关闭时重置 OAuth 状态
-    oauthWaiting.value = false;
+  if (visible) {
+    if (props.initialEmails) emailsText.value = props.initialEmails;
+    if (props.initialTab) activeTab.value = props.initialTab;
     oauthResult.value = null;
   }
 });
