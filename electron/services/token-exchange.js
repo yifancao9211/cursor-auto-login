@@ -234,4 +234,126 @@ export const tokenExchange = {
       return { success: false, error: e.message };
     }
   },
+
+  // ========== OAuth 浏览器授权登录（cockpit-tools 风格） ==========
+
+  /** 正在进行的 OAuth 登录状态 */
+  _pendingOAuth: null,
+
+  /**
+   * 开始 OAuth 登录：生成 PKCE 并返回浏览器 URL
+   * @returns {{ loginId: string, uuid: string, verifier: string, loginUrl: string }}
+   */
+  startOAuthLogin() {
+    const { verifier, challenge, uuid } = generatePKCE();
+    const loginUrl = `https://cursor.com/loginDeepControl?challenge=${challenge}&uuid=${uuid}&mode=login`;
+
+    this._pendingOAuth = { loginId: uuid, uuid, verifier, cancelled: false, startedAt: Date.now() };
+    console.log(`[oauth] 登录会话已创建: loginId=${uuid}`);
+
+    return { loginId: uuid, uuid, verifier, loginUrl };
+  },
+
+  /**
+   * 等待 OAuth 登录完成：轮询 api2.cursor.sh/auth/poll
+   * @param {string} loginId - startOAuthLogin 返回的 loginId
+   * @returns {Promise<{success: boolean, accessToken?: string, refreshToken?: string, authId?: string, email?: string, cookie?: string, error?: string}>}
+   */
+  async completeOAuthLogin(loginId) {
+    const pending = this._pendingOAuth;
+    if (!pending || pending.loginId !== loginId) {
+      return { success: false, error: "no_pending_login" };
+    }
+
+    const { uuid, verifier } = pending;
+    const pollUrl = `https://api2.cursor.sh/auth/poll?uuid=${uuid}&verifier=${verifier}`;
+    const MAX_POLLS = 150;  // 最多 5 分钟 (150 * 2s)
+    const POLL_INTERVAL = 2000;
+
+    console.log(`[oauth] 开始轮询，等待用户完成浏览器登录...`);
+
+    for (let i = 0; i < MAX_POLLS; i++) {
+      // 检查是否被取消
+      if (pending.cancelled) {
+        this._pendingOAuth = null;
+        return { success: false, error: "cancelled" };
+      }
+
+      // 检查是否超时 (5 分钟)
+      if (Date.now() - pending.startedAt > 300000) {
+        this._pendingOAuth = null;
+        return { success: false, error: "timeout" };
+      }
+
+      const resp = await httpRequest(pollUrl, { "user-agent": "Cursor/0.50.0", accept: "application/json" });
+
+      if (resp.status === 200) {
+        try {
+          const data = JSON.parse(resp.raw);
+          if (data.accessToken && data.refreshToken) {
+            console.log("[oauth] 登录成功，已获取 token");
+            this._pendingOAuth = null;
+
+            // 从 accessToken 提取 userId，构造 cookie
+            let cookie = null;
+            let email = null;
+            try {
+              const segs = data.accessToken.split(".");
+              let b64 = segs[1].replace(/-/g, "+").replace(/_/g, "/");
+              while (b64.length % 4) b64 += "=";
+              const payload = JSON.parse(Buffer.from(b64, "base64").toString());
+              if (payload.sub) {
+                const userId = payload.sub.split("|").pop();
+                cookie = encodeURIComponent(`${userId}::${data.accessToken}`);
+              }
+            } catch {
+              // ignore parse errors
+            }
+
+            // 从 authId 提取邮箱
+            if (data.authId && data.authId.includes("@")) {
+              email = data.authId;
+            }
+
+            return {
+              success: true,
+              accessToken: data.accessToken,
+              refreshToken: data.refreshToken,
+              authId: data.authId,
+              email,
+              cookie,
+            };
+          }
+        } catch {
+          // ignore parse errors
+        }
+      }
+
+      if (resp.status !== 404 && resp.status !== 200) {
+        console.log(`[oauth] 轮询返回异常状态码: ${resp.status}`);
+      }
+
+      if (i % 15 === 0 && i > 0) {
+        console.log(`[oauth] 轮询中，等待用户完成登录... (attempt=${i})`);
+      }
+
+      await new Promise((r) => setTimeout(r, POLL_INTERVAL));
+    }
+
+    this._pendingOAuth = null;
+    return { success: false, error: "poll_timeout" };
+  },
+
+  /**
+   * 取消 OAuth 登录
+   * @param {string} [loginId] - 可选，指定要取消的 loginId
+   */
+  cancelOAuthLogin(loginId) {
+    if (this._pendingOAuth) {
+      if (!loginId || this._pendingOAuth.loginId === loginId) {
+        this._pendingOAuth.cancelled = true;
+        console.log(`[oauth] 登录已取消: loginId=${this._pendingOAuth.loginId}`);
+      }
+    }
+  },
 };

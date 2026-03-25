@@ -33,7 +33,8 @@ export function isTokenExpired(token) {
 export function hasValidCredentials(acc) {
   if (acc.token && !isTokenExpired(acc.token)) return true;
   if (acc.access_token && !isTokenExpired(acc.access_token)) return true;
-  if (acc.refresh_token) return true;
+  // 如果本轮检查中 refresh 已失败，不再视为有效凭证
+  if (acc.refresh_token && !acc._refreshInvalid) return true;
   return false;
 }
 

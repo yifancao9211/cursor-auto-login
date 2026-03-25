@@ -35,6 +35,11 @@ contextBridge.exposeInMainWorld("api", {
   batchLogin: (params) => ipcRenderer.invoke("login:batch", params),
   singleLogin: (params) => ipcRenderer.invoke("login:single", params),
 
+  // OAuth 浏览器授权登录
+  startOAuthLogin: () => ipcRenderer.invoke("oauth:start"),
+  completeOAuthLogin: (loginId) => ipcRenderer.invoke("oauth:complete", loginId),
+  cancelOAuthLogin: (loginId) => ipcRenderer.invoke("oauth:cancel", loginId),
+
   // Dialogs
   openFileDialog: (options) => ipcRenderer.invoke("dialog:openFile", options),
   saveFileDialog: (options) => ipcRenderer.invoke("dialog:saveFile", options),

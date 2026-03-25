@@ -658,6 +658,7 @@ async function tryRefreshTokenAndCookie(acc, update) {
   const refreshResult = await tokenExchange.refreshAccessToken(acc.refresh_token, userId);
   if (!refreshResult.success) {
     console.log(`[check] ${acc.email}: token 刷新失败(${refreshResult.error})`);
+    acc._refreshInvalid = true;
     return false;
   }
 
@@ -1001,6 +1002,40 @@ function registerIpcHandlers() {
 
   ipcMain.handle("login:single", (_, { email, password }) => {
     return loginService.loginAccount(email, password);
+  });
+
+  // -- OAuth 浏览器授权登录 --
+  ipcMain.handle("oauth:start", () => {
+    const result = tokenExchange.startOAuthLogin();
+    // 用系统浏览器打开登录 URL
+    shell.openExternal(result.loginUrl);
+    return result;
+  });
+
+  ipcMain.handle("oauth:complete", async (_, loginId) => {
+    const result = await tokenExchange.completeOAuthLogin(loginId);
+    if (result.success) {
+      // 自动入库
+      const data = {
+        email: result.email || result.authId || "unknown",
+        access_token: result.accessToken,
+        refresh_token: result.refreshToken,
+        account_status: "active",
+        token_valid: 1,
+      };
+      if (result.cookie) data.token = result.cookie;
+      accountDb.upsert(data);
+      console.log(`[oauth] 账号已入库: ${data.email}`);
+
+      // 异步检测管理员角色
+      detectAdminRole({ email: data.email, token: result.cookie, access_token: result.accessToken }).catch(() => {});
+    }
+    return result;
+  });
+
+  ipcMain.handle("oauth:cancel", (_, loginId) => {
+    tokenExchange.cancelOAuthLogin(loginId);
+    return { success: true };
   });
 
   // -- Token Exchange: Cookie → accessToken --

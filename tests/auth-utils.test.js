@@ -67,6 +67,15 @@ describe("hasValidCredentials", () => {
   it("returns false for empty account", () => {
     expect(hasValidCredentials({})).toBe(false);
   });
+
+  it("returns false when refresh_token exists but _refreshInvalid is true", () => {
+    expect(hasValidCredentials({ refresh_token: "some-refresh-token", _refreshInvalid: true })).toBe(false);
+  });
+
+  it("returns true when _refreshInvalid but token is still valid", () => {
+    const futureExp = Math.floor(Date.now() / 1000) + 3600;
+    expect(hasValidCredentials({ token: makeJwt({}, futureExp), refresh_token: "x", _refreshInvalid: true })).toBe(true);
+  });
 });
 
 describe("extractJwt", () => {
