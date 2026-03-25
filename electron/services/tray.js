@@ -31,6 +31,14 @@ export const trayService = {
     tray = new Tray(icon);
     tray.setToolTip("Cursor Account Manager");
 
+    const isWindowAlive = () => mainWindow && !mainWindow.isDestroyed();
+
+    const showAndFocus = () => {
+      if (!isWindowAlive()) return;
+      mainWindow.show();
+      mainWindow.focus();
+    };
+
     const updateMenu = () => {
       const accounts = accountDb.listAll().filter((a) => a.account_status !== "disabled");
       const active = accounts.filter((a) => a.token_valid);
@@ -61,13 +69,7 @@ export const trayService = {
         { label: "智能切号", click: () => onSmartSwitch?.() },
         { label: "刷新数据", click: () => onRefresh?.() },
         { type: "separator" },
-        {
-          label: "显示窗口",
-          click: () => {
-            mainWindow?.show();
-            mainWindow?.focus();
-          },
-        },
+        { label: "显示窗口", click: showAndFocus },
         { label: "退出", click: () => app.quit() },
       ]);
 
@@ -76,11 +78,11 @@ export const trayService = {
     };
 
     tray.on("click", () => {
-      if (mainWindow?.isDestroyed()) return;
-      if (mainWindow?.isVisible()) {
+      if (!isWindowAlive()) return;
+      if (mainWindow.isVisible()) {
         mainWindow.focus();
       } else {
-        mainWindow?.show();
+        mainWindow.show();
       }
     });
 
