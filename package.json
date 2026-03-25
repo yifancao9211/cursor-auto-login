@@ -1,6 +1,6 @@
 {
   "name": "cursor-account-manager",
-  "version": "3.5.8",
+  "version": "3.5.9",
   "private": true,
   "type": "module",
   "description": "Cursor Account Manager - 一键切号、配额查询、批量登录",

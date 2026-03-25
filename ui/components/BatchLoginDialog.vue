@@ -24,6 +24,7 @@ const results = ref([]);
 const oauthWaiting = ref(false);
 const oauthLoginId = ref(null);
 const oauthResult = ref(null);
+const pendingOAuthEmail = ref("");
 
 // Pre-fill emails when dialog opens with initialEmails
 watch(() => props.modelValue, (visible) => {
@@ -106,7 +107,12 @@ async function startOAuth() {
     oauthResult.value = result;
 
     if (result.success) {
-      emit("done");
+      if (!result.email || result.email.includes("auth0|")) {
+        // 让用户手动补充
+        pendingOAuthEmail.value = "";
+      } else {
+        emit("done");
+      }
     }
   } catch (e) {
     oauthResult.value = { success: false, error: e.message };
@@ -114,6 +120,32 @@ async function startOAuth() {
     oauthWaiting.value = false;
     oauthLoginId.value = null;
   }
+}
+
+async function saveRealEmail() {
+  const newEmail = pendingOAuthEmail.value.trim();
+  if (!newEmail || !newEmail.includes("@")) {
+    alert("请输入有效的邮箱");
+    return;
+  }
+  const result = oauthResult.value;
+  const oldEmail = result.email || result.authId || "unknown";
+  
+  // 删除用 authId 生成的临时占位记录
+  await window.api.removeAccounts([oldEmail]);
+  
+  // 插入带有真实邮箱的新记录
+  const data = {
+    email: newEmail,
+    access_token: result.accessToken,
+    refresh_token: result.refreshToken,
+    account_status: "active",
+    token_valid: 1,
+  };
+  if (result.cookie) data.token = result.cookie;
+  await window.api.upsertAccount(data);
+  
+  emit("done");
 }
 
 function cancelOAuth() {
@@ -242,12 +274,27 @@ function cancelOAuth() {
 
               <!-- 结果 -->
               <template v-else-if="oauthResult">
-                <div v-if="oauthResult.success" class="w-full bg-apple-success/5 border border-apple-success/20 rounded-xl p-4 flex items-start gap-3">
-                  <CheckCircle2 class="w-5 h-5 text-apple-success flex-shrink-0 mt-0.5" />
-                  <div class="flex-1 min-w-0">
-                    <p class="text-sm font-bold text-apple-success">授权成功</p>
-                    <p v-if="oauthResult.email" class="text-xs text-apple-textMuted mt-1 truncate">{{ oauthResult.email }}</p>
-                    <p class="text-xs text-apple-textMuted mt-0.5">已获取 Token 并自动入库</p>
+                <div v-if="oauthResult.success" class="w-full bg-apple-success/5 border border-apple-success/20 rounded-xl p-4 flex items-start gap-3 flex-col sm:flex-row">
+                  <div class="flex items-start gap-3 w-full">
+                    <CheckCircle2 class="w-5 h-5 text-apple-success flex-shrink-0 mt-0.5" />
+                    <div class="flex-1 min-w-0">
+                      <p class="text-sm font-bold text-apple-success">授权成功</p>
+                      <p v-if="oauthResult.email && !oauthResult.email.includes('auth0|')" class="text-xs text-apple-textMuted mt-1 truncate">{{ oauthResult.email }}</p>
+                      <p class="text-xs text-apple-textMuted mt-0.5">已获取 Token 并自动入库</p>
+                    </div>
+                  </div>
+                  
+                  <div v-if="!oauthResult.email || oauthResult.email.includes('auth0|')" class="w-full mt-2 p-3 bg-white/50 rounded-lg border border-apple-accent/20 flex flex-col gap-2">
+                    <p class="text-xs font-bold text-apple-text">⚠️ 无法自动获取邮箱，请手动补全 (否则将显示为 auth0|user_xxx)</p>
+                    <div class="flex gap-2">
+                      <input 
+                        class="flex-1 bg-white border border-apple-border rounded-lg px-2.5 py-1.5 text-xs outline-none focus:border-apple-accent" 
+                        v-model="pendingOAuthEmail" 
+                        placeholder="输入对应的真实邮箱..."
+                        @keyup.enter="saveRealEmail"
+                      />
+                      <button class="apple-btn-primary text-xs px-3" @click="saveRealEmail">保存</button>
+                    </div>
                   </div>
                 </div>
                 <div v-else class="w-full bg-apple-danger/5 border border-apple-danger/20 rounded-xl p-4 flex items-start gap-3">
