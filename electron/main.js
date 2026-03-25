@@ -808,6 +808,36 @@ function registerIpcHandlers() {
     console.log(`[accounts] Activated ${emails.length} accounts: ${emails.join(", ")}`);
     return { success: true, count: emails.length };
   });
+
+  // ========== 新增：单点/批量重试认证逻辑 ==========
+  ipcMain.handle("accounts:retrySingle", async (_, email) => {
+    const acc = accountDb.listAll().find(a => a.email === email);
+    if (!acc) return { success: false, error: "Account not found" };
+    try {
+      const update = await checkSingleAccount(acc);
+      accountDb.upsert(update);
+      return { success: update.account_status !== "failed", update };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle("accounts:retryBatch", async (_, emails) => {
+    const results = [];
+    for (const email of emails) {
+      const acc = accountDb.listAll().find(a => a.email === email);
+      if (!acc) continue;
+      try {
+        const update = await checkSingleAccount(acc);
+        accountDb.upsert(update);
+        results.push({ email, success: update.account_status !== "failed" });
+      } catch (e) {
+        results.push({ email, success: false, error: e.message });
+      }
+    }
+    return results;
+  });
+
   ipcMain.handle("accounts:importTokensJson", (_, data) => accountDb.importFromTokensJson(data));
   ipcMain.handle("accounts:exportTokensJson", () => accountDb.exportToTokensJson());
 

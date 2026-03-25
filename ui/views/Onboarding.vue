@@ -105,7 +105,39 @@ async function handleImportJson() {
   }
 }
 
-async function retrySingle(email) {
+async function retryAccount(email) {
+  if (retryingSet.has(email)) return;
+  retryingSet.add(email);
+  try {
+    const result = await window.api.retrySingle(email);
+    if (result.success) {
+      toast.value?.show(`${email} 重试挽救成功`, "success");
+    } else {
+      toast.value?.show(`${email} 重试失败: ` + (result.error || "凭证依旧无效"), "error");
+    }
+  } finally {
+    retryingSet.delete(email);
+    await store.loadAccounts();
+  }
+}
+
+async function batchRetryFailed() {
+  const list = failedAccounts.value.filter(a => a.token || a.access_token || a.refresh_token);
+  if (!list.length) {
+    toast.value?.show("没有带有凭证残留的失败账号需要重试", "info");
+    return;
+  }
+  const emails = list.map(a => a.email);
+  toast.value?.show(`开始批量重试 ${emails.length} 个账号...`, "info");
+  
+  const results = await window.api.retryBatch(emails);
+  const successCount = results.filter(r => r.success).length;
+  
+  await store.loadAccounts();
+  toast.value?.show(`批量重试完成：${successCount} 个成功，${emails.length - successCount} 个失败`, successCount > 0 ? "success" : "warning");
+}
+
+async function reLogin(email) {
   if (retryingSet.has(email)) return;
   retryingSet.add(email);
   try {
@@ -117,12 +149,12 @@ async function retrySingle(email) {
       if (result.refreshToken) data.refresh_token = result.refreshToken;
       await window.api.upsertAccount(data);
       await store.loadAccounts();
-      toast.value?.show(`${email} 登录成功`, "success");
+      toast.value?.show(`${email} 重新登录成功`, "success");
     } else {
-      toast.value?.show(`${email} 登录失败`, "error");
+      toast.value?.show(`${email} 重新登录失败`, "error");
     }
   } catch (e) {
-    toast.value?.show(`${email} 登录失败: ` + e.message, "error");
+    toast.value?.show(`${email} 重新登录失败: ` + e.message, "error");
   }
   retryingSet.delete(email);
 }
@@ -159,54 +191,6 @@ async function clearAll(status) {
 
 function onBatchDone() {
   store.loadAccounts();
-}
-
-async function resetAccount(email) {
-  const ok = await confirmDialog.value.show({
-    title: "重置账号",
-    message: `确定要重置 ${email} 吗？这会清空它的已有凭证，恢复为全新的待登录状态。`,
-    confirmText: "确认重置",
-    type: "warning"
-  });
-  if (!ok) return;
-  await window.api.upsertAccount({
-    email,
-    token: "",
-    access_token: "",
-    refresh_token: "",
-    account_status: "new",
-    token_valid: 0
-  });
-  await store.loadAccounts();
-  toast.value?.show("账号已退回待登录列表", "success");
-}
-
-async function batchResetFailed() {
-  const list = failedAccounts.value.filter(a => a.token || a.access_token || a.refresh_token);
-  if (!list.length) {
-    toast.value?.show("没有带有凭证残留的失败账号需要重置", "info");
-    return;
-  }
-  const ok = await confirmDialog.value.show({
-    title: "批量重置",
-    message: `确定要把 ${list.length} 个残留凭证的失败账号全部清空吗？它们将退回「待登录」列表重新开始。`,
-    confirmText: "全部重置",
-    type: "warning"
-  });
-  if (!ok) return;
-  
-  for (const acc of list) {
-    await window.api.upsertAccount({
-      email: acc.email,
-      token: "",
-      access_token: "",
-      refresh_token: "",
-      account_status: "new",
-      token_valid: 0
-    });
-  }
-  await store.loadAccounts();
-  toast.value?.show(`已批量重置 ${list.length} 个账号`, "success");
 }
 
 function balanceOf(acc) {
@@ -324,10 +308,10 @@ function balanceOf(acc) {
         </div>
         <div class="flex items-center gap-2">
           <button v-if="failedAccounts.length" class="apple-btn-secondary text-xs px-3 flex items-center gap-1 !text-apple-warning" @click="startBatchForFailed">
-            <PlayCircle class="w-3.5 h-3.5" /> 批量重试 ({{ failedAccounts.length }})
+            <PlayCircle class="w-3.5 h-3.5" /> 批量重新登录 ({{ failedAccounts.length }})
           </button>
-          <button v-if="failedAccounts.some(a => a.token || a.access_token || a.refresh_token)" class="apple-btn-secondary text-xs px-3 flex items-center gap-1 !text-apple-text" @click="batchResetFailed">
-            <RotateCcw class="w-3.5 h-3.5" /> 批量重置
+          <button v-if="failedAccounts.some(a => a.token || a.access_token || a.refresh_token)" class="apple-btn-secondary text-xs px-3 flex items-center gap-1 !text-apple-text" @click="batchRetryFailed">
+            <RotateCcw class="w-3.5 h-3.5" /> 批量重试 (拯救)
           </button>
           <button class="text-xs text-apple-danger hover:text-red-600 font-medium transition-colors" @click="clearAll('failed')">全部清除</button>
         </div>
@@ -357,13 +341,13 @@ function balanceOf(acc) {
           </div>
         </div>
         <div class="flex items-center gap-2 flex-shrink-0">
-          <button class="apple-btn-secondary !text-apple-warning hover:bg-apple-warning/10 text-xs px-3" :disabled="retryingSet.has(acc.email)" @click="retrySingle(acc.email)">
+          <button class="apple-btn-secondary !text-apple-warning hover:bg-apple-warning/10 text-xs px-3" :disabled="retryingSet.has(acc.email)" @click="reLogin(acc.email)">
             <RefreshCw :class="['w-3.5 h-3.5 mr-1', { 'animate-spin': retryingSet.has(acc.email) }]" />
-            {{ retryingSet.has(acc.email) ? '...' : '重试' }}
+            {{ retryingSet.has(acc.email) ? '...' : '重新登录' }}
           </button>
-          <button v-if="acc.token || acc.access_token || acc.refresh_token" class="apple-btn-secondary !text-apple-text hover:bg-black/5 text-xs px-3 flex items-center gap-1" @click="resetAccount(acc.email)">
-            <RotateCcw class="w-3.5 h-3.5" />
-            重置
+          <button v-if="acc.token || acc.access_token || acc.refresh_token" class="apple-btn-secondary !text-apple-text hover:bg-black/5 text-xs px-3 flex items-center gap-1" :disabled="retryingSet.has(acc.email)" @click="retryAccount(acc.email)">
+            <RotateCcw :class="['w-3.5 h-3.5', { 'animate-spin': retryingSet.has(acc.email) }]" />
+            重试
           </button>
           <button class="apple-btn-secondary !text-apple-textMuted hover:bg-black/5 text-xs px-2" title="标记为禁用" @click="toggleDisabled(acc.email, true)">
             <Ban class="w-3.5 h-3.5" />

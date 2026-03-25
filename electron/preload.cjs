@@ -22,6 +22,8 @@ contextBridge.exposeInMainWorld("api", {
   importFull: () => ipcRenderer.invoke("accounts:importFull"),
   refreshAllAccounts: () => ipcRenderer.invoke("accounts:refreshAll"),
   discoverTeam: () => ipcRenderer.invoke("accounts:discoverTeam"),
+  retrySingle: (email) => ipcRenderer.invoke("accounts:retrySingle", email),
+  retryBatch: (emails) => ipcRenderer.invoke("accounts:retryBatch", emails),
 
   // Token Exchange
   exchangeToken: (email) => ipcRenderer.invoke("accounts:exchangeToken", email),
