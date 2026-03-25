@@ -126,7 +126,7 @@ export const tokenExchange = {
         { uuid, challenge }
       );
 
-      if (confirmResp.status !== 200) {
+      if (confirmResp.status !== 200 && confirmResp.status !== 307 && confirmResp.status !== 302) {
         return { success: false, error: `loginDeepCallbackControl returned ${confirmResp.status}` };
       }
 
