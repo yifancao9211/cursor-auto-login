@@ -110,7 +110,7 @@ app.whenReady().then(() => {
   // Init auto updater
   initUpdater((event, data) => sendToRenderer("updater:event", { event, data }));
   setTimeout(() => {
-    checkForUpdates().catch(e => console.error("[updater] init check failed:", e));
+    checkForUpdates().catch(e => console.error("[updater] init check failed:", e.message || e));
   }, 15000);
 
   setTimeout(() => runAutoCheck(), 10000);

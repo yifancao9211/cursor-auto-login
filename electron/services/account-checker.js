@@ -141,8 +141,21 @@ export async function checkSingleAccount(acc, { cursorApi, tokenExchange, hasVal
     update.membership_type = usage.data.membershipType || null;
     update.on_demand_used = od ? +(od.used / 100).toFixed(2) : null;
     update.on_demand_limit = od ? +(od.limit / 100).toFixed(2) : null;
-    update.plan_used = plan ? +(plan.used / 100).toFixed(2) : null;
-    update.plan_limit = plan ? +(plan.limit / 100).toFixed(2) : null;
+    
+    const newPlanUsed = plan?.used != null ? +(plan.used / 100).toFixed(2) : null;
+    const newPlanLimit = plan?.limit != null ? +(plan.limit / 100).toFixed(2) : null;
+
+    if (newPlanLimit != null && newPlanLimit > 0) {
+      update.plan_used = newPlanUsed;
+      update.plan_limit = newPlanLimit;
+    } else if (acc.plan_limit != null) {
+      // 保留由管理员整体刷新同步过来的团队共享额度，避免单点刷新将其覆盖为空
+      update.plan_used = acc.plan_used;
+      update.plan_limit = acc.plan_limit;
+    } else {
+      update.plan_used = newPlanUsed;
+      update.plan_limit = newPlanLimit;
+    }
     update.reset_date = usage.data.billingCycleEnd || null;
     update.token_valid = 1;
     update.account_status = "active";

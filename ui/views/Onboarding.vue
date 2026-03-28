@@ -33,12 +33,22 @@ async function handleDiscoverTeam() {
 
 const newAccounts = computed(() => {
   const q = filterText.value.toLowerCase();
-  return store.newAccounts.filter(a => !q || a.email.toLowerCase().includes(q));
+  let list = store.newAccounts.filter(a => !q || a.email.toLowerCase().includes(q));
+  return list.sort((a, b) => {
+    const balA = getBalance(a).balance ?? -1;
+    const balB = getBalance(b).balance ?? -1;
+    return balB - balA;
+  });
 });
 
 const failedAccounts = computed(() => {
   const q = filterText.value.toLowerCase();
-  return store.failedAccounts.filter(a => !q || a.email.toLowerCase().includes(q));
+  let list = store.failedAccounts.filter(a => !q || a.email.toLowerCase().includes(q));
+  return list.sort((a, b) => {
+    const balA = getBalance(a).balance ?? -1;
+    const balB = getBalance(b).balance ?? -1;
+    return balB - balA;
+  });
 });
 
 const disabledAccounts = computed(() => {
