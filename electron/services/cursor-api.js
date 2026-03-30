@@ -55,6 +55,11 @@ function requestBearer(urlPath, accessToken, method = "GET", body = null) {
 export const cursorApi = {
   // ========== Cookie 认证 (cursor.com) ==========
 
+  /** 获取当前用户信息（包含 email） */
+  fetchAuthMe(token) {
+    return request("cursor.com", "/api/auth/me", token);
+  },
+
   fetchUsage(token) {
     return request("cursor.com", "/api/usage-summary", token);
   },

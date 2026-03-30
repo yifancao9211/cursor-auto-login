@@ -3,7 +3,8 @@ import { ref, reactive, computed, inject } from "vue";
 import { useAppStore } from "../stores/app.js";
 import { getBalance } from "../utils/account.js";
 import BatchLoginDialog from "../components/BatchLoginDialog.vue";
-import { Plus, Upload, RefreshCw, Trash2, AlertTriangle, PackagePlus, ShieldCheck, PlayCircle, BadgeInfo, Search, ClipboardPaste, X, Users, Ban, Undo2, Globe, RotateCcw } from "lucide-vue-next";
+import TokenDetailDialog from "../components/TokenDetailDialog.vue";
+import { Plus, Upload, RefreshCw, Trash2, AlertTriangle, PackagePlus, ShieldCheck, PlayCircle, BadgeInfo, Search, ClipboardPaste, X, Users, Ban, Undo2, Globe, RotateCcw, Eye } from "lucide-vue-next";
 
 const store = useAppStore();
 const toast = inject("toast");
@@ -18,6 +19,13 @@ const showImportDialog = ref(false);
 const importJsonText = ref("");
 const importResult = ref(null);
 const discoveringTeam = ref(false);
+const tokenDialogVisible = ref(false);
+const tokenDialogAccount = ref(null);
+
+function handleViewToken(acc) {
+  tokenDialogAccount.value = acc;
+  tokenDialogVisible.value = true;
+}
 
 async function handleDiscoverTeam() {
   discoveringTeam.value = true;
@@ -351,6 +359,9 @@ function balanceOf(acc) {
           </div>
         </div>
         <div class="flex items-center gap-2 flex-shrink-0">
+          <button class="apple-btn-secondary !text-apple-textMuted hover:bg-black/5 text-xs px-2 flex items-center gap-1" title="查看 Token" @click.stop="handleViewToken(acc)">
+            <Eye class="w-3.5 h-3.5" />
+          </button>
           <button class="apple-btn-secondary !text-apple-warning hover:bg-apple-warning/10 text-xs px-3" :disabled="retryingSet.has(acc.email)" @click="reLogin(acc.email)">
             <RefreshCw :class="['w-3.5 h-3.5 mr-1', { 'animate-spin': retryingSet.has(acc.email) }]" />
             {{ retryingSet.has(acc.email) ? '...' : '重新登录' }}
@@ -415,6 +426,9 @@ function balanceOf(acc) {
 
     <!-- Batch Login Dialog -->
     <BatchLoginDialog v-model="showBatchLogin" :initial-emails="batchLoginEmails" :initial-tab="defaultTab" @done="onBatchDone" />
+
+    <!-- Token Detail Dialog -->
+    <TokenDetailDialog v-model="tokenDialogVisible" :account="tokenDialogAccount" />
 
     <!-- Import JSON Dialog -->
     <Transition name="modal">

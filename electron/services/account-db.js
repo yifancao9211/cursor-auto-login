@@ -132,6 +132,42 @@ export const accountDb = {
     return !!db.prepare("SELECT 1 FROM accounts WHERE email = ?").get(email);
   },
 
+  /**
+   * 重命名账号的 email（主键），保留所有其他数据
+   * @param {string} oldEmail - 旧 email（如 auth0|user_xxx）
+   * @param {string} newEmail - 新的真实邮箱
+   * @returns {boolean} 是否成功
+   */
+  renameEmail(oldEmail, newEmail) {
+    const row = db.prepare("SELECT * FROM accounts WHERE email = ?").get(oldEmail);
+    if (!row) return false;
+    // 如果新 email 已经存在，将旧记录的 token 合并到新记录
+    if (this.exists(newEmail)) {
+      const mergeFields = {};
+      for (const key of Object.keys(row)) {
+        if (key === "email" || key === "created_at") continue;
+        if (row[key] != null && ALLOWED_COLUMNS.has(key)) {
+          mergeFields[key] = row[key];
+        }
+      }
+      mergeFields.email = newEmail;
+      this.upsert(mergeFields);
+      db.prepare("DELETE FROM accounts WHERE email = ?").run(oldEmail);
+      return true;
+    }
+    // 新 email 不存在，直接插入新行删除旧行
+    const tx = db.transaction(() => {
+      const cols = Object.keys(row);
+      const newRow = { ...row, email: newEmail };
+      const colNames = cols.join(", ");
+      const placeholders = cols.map((c) => `@${c}`).join(", ");
+      db.prepare(`INSERT INTO accounts (${colNames}) VALUES (${placeholders})`).run(newRow);
+      db.prepare("DELETE FROM accounts WHERE email = ?").run(oldEmail);
+    });
+    tx();
+    return true;
+  },
+
   importFromTokensJson(data) {
     const tx = db.transaction(() => {
       let count = 0;

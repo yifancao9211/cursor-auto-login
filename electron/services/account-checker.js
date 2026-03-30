@@ -159,6 +159,19 @@ export async function checkSingleAccount(acc, { cursorApi, tokenExchange, hasVal
     update.reset_date = usage.data.billingCycleEnd || null;
     update.token_valid = 1;
     update.account_status = "active";
+
+    // 检测 email 是否为 auth0|xxx 格式，如果是则调 /api/auth/me 获取真实邮箱
+    if (acc.email && !acc.email.includes("@") && acc.token) {
+      try {
+        const meResp = await cursorApi.fetchAuthMe(acc.token);
+        if (meResp.status === 200 && meResp.data && meResp.data.email) {
+          update._resolvedEmail = meResp.data.email;
+          console.log(`[check] 发现 auth0 格式邮箱 ${acc.email}，通过 /api/auth/me 解析为: ${meResp.data.email}`);
+        }
+      } catch {
+        // ignore
+      }
+    }
   } else if (usage.status === 401 || usage.status === 403 || usage.status === 307) {
     if (refreshAttemptedAndAuthFailed) {
       update.token_valid = 0;

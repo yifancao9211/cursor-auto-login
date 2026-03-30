@@ -666,7 +666,24 @@ function saveLoginResult(r) {
 
 async function checkSingleAccount(acc) {
   const { checkSingleAccount: _check } = await import("./services/account-checker.js");
-  return _check(acc, { cursorApi, tokenExchange, hasValidCredentials });
+  const update = await _check(acc, { cursorApi, tokenExchange, hasValidCredentials });
+
+  // 如果检测到 auth0 格式的 email 被解析为真实邮箱，执行 rename
+  if (update._resolvedEmail) {
+    const realEmail = update._resolvedEmail;
+    delete update._resolvedEmail;
+    try {
+      const renamed = accountDb.renameEmail(acc.email, realEmail);
+      if (renamed) {
+        console.log(`[check] 已将 ${acc.email} 重命名为 ${realEmail}`);
+        update.email = realEmail;
+      }
+    } catch (e) {
+      console.error(`[check] renameEmail 失败: ${e.message}`);
+    }
+  }
+
+  return update;
 }
 
 /** 用已有有效 Token 拉组织计费成员，发现新成员自动加入 DB */
@@ -915,19 +932,14 @@ function registerIpcHandlers() {
       let email = result.email;
 
       // 如果 OAuth 没能获取到邮箱（authId 是 Auth0 格式如 auth0|user_xxx），
-      // 用 token 调 API 获取真实邮箱
+      // 用 cookie 调 /api/auth/me 获取真实邮箱
       if (!email || !email.includes("@")) {
         try {
-          const acc = { access_token: result.accessToken, token: result.cookie };
-          const usage = await cursorApi.fetchUsageSmart(acc);
-          if (usage.status === 200 && usage.data) {
-            // usage-summary 返回的 email 字段
-            email = usage.data.email || usage.data.cachedEmail || null;
-          }
-          if (!email || !email.includes("@")) {
-            const stripe = await cursorApi.fetchStripeSmart(acc);
-            if (stripe.status === 200 && stripe.data) {
-              email = stripe.data.email || null;
+          if (result.cookie) {
+            const meResp = await cursorApi.fetchAuthMe(result.cookie);
+            if (meResp.status === 200 && meResp.data && meResp.data.email) {
+              email = meResp.data.email;
+              console.log(`[oauth] 通过 /api/auth/me 获取到真实邮箱: ${email}`);
             }
           }
         } catch (e) {
