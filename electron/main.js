@@ -912,9 +912,38 @@ function registerIpcHandlers() {
   ipcMain.handle("oauth:complete", async (_, loginId) => {
     const result = await tokenExchange.completeOAuthLogin(loginId);
     if (result.success) {
+      let email = result.email;
+
+      // 如果 OAuth 没能获取到邮箱（authId 是 Auth0 格式如 auth0|user_xxx），
+      // 用 token 调 API 获取真实邮箱
+      if (!email || !email.includes("@")) {
+        try {
+          const acc = { access_token: result.accessToken, token: result.cookie };
+          const usage = await cursorApi.fetchUsageSmart(acc);
+          if (usage.status === 200 && usage.data) {
+            // usage-summary 返回的 email 字段
+            email = usage.data.email || usage.data.cachedEmail || null;
+          }
+          if (!email || !email.includes("@")) {
+            const stripe = await cursorApi.fetchStripeSmart(acc);
+            if (stripe.status === 200 && stripe.data) {
+              email = stripe.data.email || null;
+            }
+          }
+        } catch (e) {
+          console.log(`[oauth] 获取邮箱失败: ${e.message}`);
+        }
+      }
+
+      // 最终 fallback
+      if (!email || !email.includes("@")) {
+        email = result.authId || "unknown";
+        console.log(`[oauth] 警告：无法获取真实邮箱，使用 authId 作为标识: ${email}`);
+      }
+
       // 自动入库
       const data = {
-        email: result.email || result.authId || "unknown",
+        email,
         access_token: result.accessToken,
         refresh_token: result.refreshToken,
         account_status: "active",

@@ -297,7 +297,7 @@ export const tokenExchange = {
             console.log("[oauth] 登录成功，已获取 token");
             this._pendingOAuth = null;
 
-            // 从 accessToken 提取 userId，构造 cookie
+            // 从 accessToken 提取 userId 和 email，构造 cookie
             let cookie = null;
             let email = null;
             try {
@@ -309,12 +309,16 @@ export const tokenExchange = {
                 const userId = payload.sub.split("|").pop();
                 cookie = encodeURIComponent(`${userId}::${data.accessToken}`);
               }
+              // 从 JWT payload 提取邮箱
+              if (payload.email) {
+                email = payload.email;
+              }
             } catch {
               // ignore parse errors
             }
 
-            // 从 authId 提取邮箱
-            if (data.authId && data.authId.includes("@")) {
+            // fallback：从 authId 提取邮箱
+            if (!email && data.authId && data.authId.includes("@")) {
               email = data.authId;
             }
 
