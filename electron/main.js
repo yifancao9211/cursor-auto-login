@@ -94,18 +94,53 @@ app.whenReady().then(() => {
   });
 
   // Auto-import current Cursor IDE account if not in DB
-  try {
-    const auth = cursorDb.readAuth();
-    if (auth.cachedEmail && !auth.error && !accountDb.exists(auth.cachedEmail)) {
-      const importData = { email: auth.cachedEmail, account_status: "active", token_valid: 1 };
-      if (auth.accessToken) importData.access_token = auth.accessToken;
-      if (auth.refreshToken) importData.refresh_token = auth.refreshToken;
-      accountDb.upsert(importData);
-      console.log(`[auto-import] Current IDE account ${auth.cachedEmail} imported to DB`);
+  (async () => {
+    try {
+      const auth = cursorDb.readAuth();
+      if (auth.cachedEmail && !auth.error) {
+        let email = auth.cachedEmail;
+
+        // 如果 cachedEmail 是 auth0 格式，用 cookie 调 /api/auth/me 获取真实邮箱
+        if (!email.includes("@")) {
+          try {
+            // 从 Cursor IDE 的 accessToken 构造 cookie
+            let cookie = null;
+            if (auth.accessToken) {
+              const segs = auth.accessToken.split(".");
+              if (segs.length >= 2) {
+                let b64 = segs[1].replace(/-/g, "+").replace(/_/g, "/");
+                while (b64.length % 4) b64 += "=";
+                const payload = JSON.parse(Buffer.from(b64, "base64").toString());
+                if (payload.sub) {
+                  const userId = payload.sub.split("|").pop();
+                  cookie = encodeURIComponent(`${userId}::${auth.accessToken}`);
+                }
+              }
+            }
+            if (cookie) {
+              const meResp = await cursorApi.fetchAuthMe(cookie);
+              if (meResp.status === 200 && meResp.data && meResp.data.email) {
+                console.log(`[auto-import] 解析 auth0 ID ${email} 为真实邮箱: ${meResp.data.email}`);
+                email = meResp.data.email;
+              }
+            }
+          } catch (e) {
+            console.log(`[auto-import] 无法解析 auth0 邮箱: ${e.message}`);
+          }
+        }
+
+        if (!accountDb.exists(email)) {
+          const importData = { email, account_status: "active", token_valid: 1 };
+          if (auth.accessToken) importData.access_token = auth.accessToken;
+          if (auth.refreshToken) importData.refresh_token = auth.refreshToken;
+          accountDb.upsert(importData);
+          console.log(`[auto-import] Current IDE account ${email} imported to DB`);
+        }
+      }
+    } catch (e) {
+      console.error("[auto-import] Failed:", e.message);
     }
-  } catch (e) {
-    console.error("[auto-import] Failed:", e.message);
-  }
+  })();
 
   // Init auto updater
   initUpdater((event, data) => sendToRenderer("updater:event", { event, data }));
